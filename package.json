@@ -1,0 +1,30 @@
+{
+  "dependencies": {
+    "@telegraf/session": "^2.0.0-beta.7",
+    "dotenv": "^17.3.1",
+    "https-proxy-agent": "^7.0.6",
+    "mongodb": "^7.1.0",
+    "mongoose": "^9.2.1",
+    "telegraf": "^4.16.3"
+  },
+  "name": "al-msar-telegram-bot",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000A\u0000l\u0000-\u0000M\u0000s\u0000a\u0000r\u0000-\u0000T\u0000e\u0000l\u0000e\u0000g\u0000r\u0000a\u0000m\u0000-\u0000B\u0000o\u0000t\u0000\r\u0000 \u0000",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yusuf17X/Al-Msar-Telegram-Bot.git"
+  },
+  "author": "Yousif",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Yusuf17X/Al-Msar-Telegram-Bot/issues"
+  },
+  "homepage": "https://github.com/Yusuf17X/Al-Msar-Telegram-Bot#readme",
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}
