@@ -1,0 +1,396 @@
+هلا بيك! 👋 شونك؟ إن شاء الله بخير.
+
+تتوريال كامل عن Prisma و Postgre SQL؟ يا هلا والله! هذا موضوع كلش حلو ومهم، واني كلش فرحان أشرحه لك. Prisma هو ORM (Object-Relational Mapper) كلش قوي وسهل الاستخدام، و PostgreSQL هو قاعدة بيانات من أروع ما يكون.
+
+يلا نبدي خطوة بخطوة:
+
+### 1. نبذة سريعة عن Prisma و PostgreSQL
+
+*   **PostgreSQL:**
+    *   قاعدة بيانات علائقية مفتوحة المصدر، قوية جداً، ومستقرة.
+    *   تدعم ميزات متقدمة مثل ACID compliance، JSONB support، full-text search، geospatial data، وغيرها.
+    *   تعتبر خيار ممتاز للمشاريع الكبيرة والمعقدة.
+
+*   **Prisma:**
+    *   ORMs (Object-Relational Mapper) من الجيل الجديد.
+    *   يجعل التعامل مع قواعد البيانات أسهل بكثير عن طريق توفير واجهة JavaScript/TypeScript بحيث تتجنب كتابة SQL مباشرة.
+    *   يتميز بـ:
+        *   **Prisma Client:** واجهة API آمنة وذكية للاستعلام عن قاعدة البيانات.
+        *   **Prisma Migrate:** نظام Migration يساعدك على تطوير مخطط قاعدة البيانات (schema) بطريقة آمنة.
+        *   **Prisma Studio:** واجهة مستخدم رسومية (GUI) لتصفح وإدارة بياناتك.
+
+### 2. المتطلبات الأساسية
+
+قبل ما نبدي، نحتاج نجهز بيئة العمل:
+
+*   **Node.js و npm/yarn:** لازم يكونون مثبتين على جهازك. (تأكد من إن إصدار Node.js حديث نسبياً)
+*   **PostgreSQL:** لازم يكون مثبت وشغال عندك. إذا ما مثبت، نزله من [الموقع الرسمي](https://www.postgresql.org/download/).
+*   **محرر أكواد:** مثل VS Code (مع إضافة Prisma راح تفيدك كلش).
+
+### 3. إعداد مشروع Node.js
+
+مبدئياً، راح نسوي مجلد جديد ونبدي مشروع Node.js:
+
+```bash
+mkdir prisma-postgres-tutorial
+cd prisma-postgres-tutorial
+npm init -y  # أو yarn init -y
+```
+
+### 4. تثبيت Prisma و PostgreSQL Client
+
+هسه نثبت Prisma والـ driver الخاص بـ PostgreSQL. `pg` هو الـ Node.js driver اللي will be used by Prisma to connect to PostgreSQL.
+
+```bash
+npm install prisma --save-dev
+npm install @prisma/client pg
+# أو باستخدام yarn
+# yarn add prisma --dev
+# yarn add @prisma/client pg
+```
+
+### 5. إعداد قاعدة بيانات PostgreSQL
+
+1.  **إنشاء قاعدة بيانات:**
+    *   إذا كنت تستخدم `psql` في الـ terminal:
+        ```bash
+        createdb my_prisma_db
+        ```
+    *   إذا كنت تستخدم واجهة رسومية مثل pgAdmin: افتح pgAdmin، اضغط كليك يمين على "Databases" واختر "Create" -> "Database..."، وسميها `my_prisma_db` مثلاً.
+
+2.  **معلومات الاتصال:** جهز معلومات الاتصال بقاعدة البيانات مالتك:
+    *   اسم المستخدم (Username)
+    *   كلمة المرور (Password)
+    *   اسم قاعدة البيانات (Database Name) - اللي سويناها `my_prisma_db`
+    *   المضيف (Host) - غالباً `localhost`
+    *   المنفذ (Port) - الافتراضي هو `5432`
+
+### 6. إعداد Prisma Schema
+
+ملف `schema.prisma` هو قلب Prisma. فيه نحدد الـ models (الجداول) مالتنا وكيفية الربط بقاعدة البيانات.
+
+1.  **تهيئه Prisma:**
+    ```bash
+    npx prisma init --datasource-provider postgresql
+    ```
+    هذا الأمر راح يسوي شغلتين:
+    *   ينشئ ملف `.env` لمتغيرات البيئة (مثل بيانات الاتصال بقاعدة البيانات).
+    *   ينشئ ملف `prisma/schema.prisma` اللي راح نشتغل عليه.
+
+2.  **تحديث ملف `.env`:**
+    افتح ملف `.env` اللي صار بالمجلد الرئيسي، وعدّله بهذا الشكل (استبدل المعلومات بمعلومات قاعدة البيانات مالتك):
+
+    ```env
+    # .env
+    DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE_NAME?schema=public"
+    ```
+    مثال:
+    ```env
+    DATABASE_URL="postgresql://postgres:mypassword@localhost:5432/my_prisma_db?schema=public"
+    ```
+    *   `USER`: اسم مستخدم PostgreSQL.
+    *   `PASSWORD`: كلمة مرور PostgreSQL.
+    *   `HOST`: عنوان المضيف (غالباً `localhost`).
+    *   `PORT`: المنفذ (غالباً `5432`).
+    *   `DATABASE_NAME`: اسم قاعدة البيانات (مثل `my_prisma_db`).
+    *   `schema=public`: هذا مهم في PostgreSQL.
+
+3.  **تحديث ملف `prisma/schema.prisma`:**
+    افتح ملف `prisma/schema.prisma` وعدّله. خلينا نسوي مثال بسيط: جدول للمستخدمين (`User`) وجدول للمنشورات (`Post`).
+
+    ```prisma
+    // prisma/schema.prisma
+
+    // This is your Prisma schema file,
+    // learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+    generator client {
+      provider = "prisma-node"
+    }
+
+    datasource db {
+      provider = "postgresql"
+      url      = env("DATABASE_URL")
+    }
+
+    model User {
+      id        Int      @id @default(autoincrement())
+      email     String   @unique
+      name      String?  // اسم اختياري
+      createdAt DateTime @default(now())
+      updatedAt DateTime @updatedAt
+
+      posts Post[] // علاقة واحد لمتعدد مع جدول Post
+    }
+
+    model Post {
+      id        Int      @id @default(autoincrement())
+      title     String
+      content   String?
+      published Boolean  @default(false)
+      authorId  Int      // مفتاح خارجي لجدول User
+      createdAt DateTime @default(now())
+      updatedAt DateTime @updatedAt
+
+      author User     @relation(fields: [authorId], references: [id]) // العلاقة نفسها
+    }
+    ```
+
+    *   `generator client`: يولد Prisma Client.
+    *   `datasource db`: يخبر Prisma عن نوع قاعدة البيانات وكيفية الاتصال بها (عن طريق `DATABASE_URL` من ملف `.env`).
+    *   `model User` و `model Post`: هذه تمثل جداولك في قاعدة البيانات.
+    *   `@id @default(autoincrement())`: يعني هذا الحقل هو مفتاح أساسي ويزيد تلقائياً.
+    *   `@unique`: يضمن أن قيمة هذا الحقل فريدة.
+    *   `String?`: يعني هذا الحقل نصي وهو اختياري (يمكن أن يكون `null`).
+    *   `DateTime @default(now())`: يحفظ تاريخ ووقت إنشاء السجل.
+    *   `DateTime @updatedAt`: يحدث تاريخ ووقت السجل تلقائياً عند تعديله.
+    *   `posts Post[]` و `author User`: هذه العلاقات بين الجداول. `User` عنده `posts` كثير، وكل `Post` عنده `author` واحد.
+
+### 7. تشغيل Migrations
+
+بعد ما عرفنا المخطط (schema)، لازم نخلي Prisma ينشئ الجداول المقابلة في قاعدة بيانات PostgreSQL.
+
+```bash
+npx prisma migrate dev --name init
+```
+*   `migrate dev`: يسوي migration في بيئة التطوير.
+*   `--name init`: اسم للـ migration (مفيد لتتبع التغييرات).
+
+هذا الأمر راح يسوي شغلتين:
+1.  ينشئ ملف Migration في مجلد `prisma/migrations` يحتوي على SQL جاهز لإنشاء الجداول.
+2.  يطبق هذا الـ SQL على قاعدة بيانات PostgreSQL مالتك، فينشئ عندك جدول `User` وجدول `Post`.
+
+**ملاحظة:** في المرات القادمة، لما تعدل ملف `schema.prisma` (تضيف حقول، تعدل نماذج، الخ)، راح ترجع تشغل هذا الأمر عشان تتحدث قاعدة البيانات.
+
+### 8. استخدام Prisma Client
+
+هسه نجي للجزء الممتع: التفاعل مع قاعدة البيانات باستخدام Prisma Client.
+
+1.  **إنشاء Prisma Client:**
+    تحتاج تسوي instance من Prisma Client في ملف JavaScript أو TypeScript.
+
+    *   **في TypeScript:**
+        ```bash
+        npm install typescript @types/node --save-dev
+        # أو yarn add typescript @types/node --dev
+        # جهز ملف tsconfig.json إذا ما عندك
+        ```
+        أنشئ ملف مثلاً `src/index.ts`:
+
+        ```typescript
+        // src/index.ts
+        import { PrismaClient } from '@prisma/client';
+
+        const prisma = new PrismaClient();
+
+        async function main() {
+          // هنا راح نكتب الأكواد لتجربة Prisma
+        }
+
+        main()
+          .catch((e) => {
+            console.error(e);
+            process.exit(1);
+          })
+          .finally(async () => {
+            await prisma.$disconnect();
+          });
+        ```
+
+    *   **في JavaScript:**
+        أنشئ ملف مثلاً `index.js`:
+
+        ```javascript
+        // index.js
+        const { PrismaClient } = require('@prisma/client');
+
+        const prisma = new PrismaClient();
+
+        async function main() {
+          // هنا راح نكتب الأكواد لتجربة Prisma
+        }
+
+        main()
+          .catch((e) => {
+            console.error(e);
+            process.exit(1);
+          })
+          .finally(async () => {
+            await prisma.$disconnect();
+          });
+        ```
+
+2.  **إضافة بيانات (Create):**
+    داخل الدالة `main`، جرب تسوي مستخدمين ومنشورات:
+
+    ```typescript
+    // src/index.ts (داخل دالة main)
+
+    // إنشاء مستخدم جديد
+    const newUser = await prisma.user.create({
+      data: {
+        email: 'ahmed@example.com',
+        name: 'Ahmed Ali',
+      },
+    });
+    console.log('Created new user:', newUser);
+
+    // إنشاء منشور والربط بنفس الوقت
+    const newPost = await prisma.post.create({
+      data: {
+        title: 'My First Post',
+        content: 'This is the content of my first post using Prisma!',
+        published: true,
+        author: { // الربط مع المستخدم عند الإنشاء
+          connect: {
+            email: 'ahmed@example.com',
+          },
+        },
+      },
+      include: { // جيب بيانات المؤلف مع المنشور
+        author: true,
+      },
+    });
+    console.log('Created new post:', newPost);
+    ```
+
+3.  **قراءة بيانات (Read):**
+    *   **جلب كل المستخدمين:**
+        ```typescript
+        const allUsers = await prisma.user.findMany();
+        console.log('All users:', allUsers);
+        ```
+
+    *   **جلب مستخدم عن طريق البريد الإلكتروني:**
+        ```typescript
+        const userByEmail = await prisma.user.findUnique({
+          where: {
+            email: 'ahmed@example.com',
+          },
+        });
+        console.log('User by email:', userByEmail);
+        ```
+
+    *   **جلب المنشورات المنشورة فقط:**
+        ```typescript
+        const publishedPosts = await prisma.post.findMany({
+          where: {
+            published: true,
+          },
+          orderBy: { // ترتيب حسب وقت الإنشاء تنازلي
+            createdAt: 'desc',
+          },
+        });
+        console.log('Published posts:', publishedPosts);
+        ```
+
+    *   **جلب مستخدم مع منشوراته:**
+        ```typescript
+        const userWithPosts = await prisma.user.findUnique({
+          where: {
+            email: 'ahmed@example.com',
+          },
+          include: {
+            posts: { // جلب كل المنشورات لهذا المستخدم
+              where: { published: true }, // ممكن فلترة هنا كمان
+            },
+          },
+        });
+        console.log('User with posts:', userWithPosts);
+        ```
+
+4.  **تحديث بيانات (Update):**
+    ```typescript
+    // تعديل منشور لجعله غير منشور
+    const updatedPost = await prisma.post.update({
+      where: {
+        id: newPost.id, // استخدم الـ ID اللي رجع من الإنشاء
+      },
+      data: {
+        published: false,
+      },
+    });
+    console.log('Updated post:', updatedPost);
+
+    // تعديل اسم مستخدم
+    const updatedUser = await prisma.user.update({
+      where: {
+        email: 'ahmed@example.com',
+      },
+      data: {
+        name: 'Ahmed Mohamed Ali',
+      },
+    });
+    console.log('Updated user:', updatedUser);
+    ```
+
+5.  **حذف بيانات (Delete):**
+    ```typescript
+    // حذف منشور معين
+    const deletedPost = await prisma.post.delete({
+      where: {
+        id: newPost.id,
+      },
+    });
+    console.log('Deleted post:', deletedPost);
+
+    // حذف مستخدم (مع ملاحظة انه راح ينحذفون منشوراته إذا كانت العلاقة ON DELETE CASCADE معرفة، بس Prisma ما تسويها بشكل افتراضي)
+    // لو تريد تحذف منشورات المستخدم أولاً:
+    // await prisma.post.deleteMany({ where: { authorId: userToDelete.id } });
+    // const deletedUser = await prisma.user.delete({
+    //   where: {
+    //     email: 'ahmed@example.com',
+    //   },
+    // });
+    // console.log('Deleted user:', deletedUser);
+    ```
+
+### 9. تشغيل المشروع
+
+*   **إذا كنت تستخدم TypeScript:**
+    ```bash
+    npx tsc # compile the ts to js
+    node dist/index.js # أو حسب مجلد الـ output في tsconfig.json
+    ```
+    أو ممكن تستخدم `ts-node` مباشرة:
+    ```bash
+    npx ts-node src/index.ts
+    ```
+
+*   **إذا كنت تستخدم JavaScript:**
+    ```bash
+    node index.js
+    ```
+
+### 10. Prisma Studio (اختياري لكن مفيد جداً)
+
+Prisma Studio هو واجهة رسومية عشان تدير بياناتك وتشوفها وتعدلها بسهولة.
+
+```bash
+npx prisma studio
+```
+راح يفتح لك نافذة في المتصفح فيها جداولك وتقدر تضيف، تعدل، وتمسح بيانات. كل التغييرات اللي تسويها هنا تنعكس على قاعدة البيانات مباشرة.
+
+### 11. نصائح إضافية
+
+*   **Validations:** Prisma Client ما تسوي validations للبيانات (مثل إذا كان الإيميل صحيح). لازم تسوي هالشي في الكود مال تطبيقك.
+*   **Error Handling:** دائماً استخدم `try...catch` أو `.catch()` لما تشتغل مع Prisma عشان تتعامل مع الأخطاء المحتملة (مثل محاولة إدخال إيميل موجود).
+*   **Transactions:** إذا تحتاج تسوي عمليات متعددة تكون Atomic (كلها تنجح أو كلها تفشل)، استخدم Prisma Transactions:
+    ```typescript
+    const result = await prisma.$transaction([
+      prisma.user.update({ where: { email: 'ahmed@example.com' }, data: { name: 'Ahmed New Name' } }),
+      prisma.post.update({ where: { id: 1 }, data: { published: true } }),
+    ]);
+    ```
+*   **Raw SQL:** لو احتجت تسوي query معقد جداً وما تقدر تسويه بـ Prisma Client، تقدر تستخدم الـ Raw SQL:
+    ```typescript
+    const users = await prisma.$queryRaw`SELECT * FROM "User" WHERE name = ${'Ahmed Ali'}`;
+    console.log(users);
+    ```
+    *   **تنبيه:** استخدام `$queryRaw` يتطلب الحذر من SQL Injection إذا كنت تدخل قيم من المستخدم مباشرة، وهو ما أنصح به.
+
+### الخلاصة
+
+Prisma مع PostgreSQL منظومة عمل قوية جداً لتطوير التطبيقات. Prisma تخليك تركز على منطق التطبيق بدل ما تدوخ بـ SQL، و PostgreSQL توفر لك قاعدة بيانات قوية وتدعم أي شي تحتاجه.
+
+أتمنى يكون هذا الـ tutorial واضح ومفيد لك! إذا عندك أي سؤال محدد أو تريد تتعمق بأي جزء، بس كلي. أني حاضر للمساعدة. 😊🇮🇶

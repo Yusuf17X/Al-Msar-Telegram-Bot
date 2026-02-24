@@ -1,0 +1,704 @@
+يا سلام! فكرة ممتازة ومطلوبة جداً. تطوير بوت تيليجرام لإدارة المحاضرات بهذا الشكل هو مشروع مفيد. سأساعدك في بناء الهيكل الأساسي والكود اللازم لذلك باستخدام Node.js، Telegraf، Mongoose، و Google Drive API.
+
+نظرًا لأن هذا مشروع متكامل ويحتاج إلى عدة خطوات، سأقوم بتقسيم الإجابة إلى أجزاء رئيسية مع شرح كل جزء.
+
+**المتطلبات الأساسية قبل البدء:**
+
+1.  **حساب Telegram BotFather:** لإنشاء البوت والحصول على Toke الخاصة به.
+2.  **حساب Google Cloud Platform:** لتمكين Google Drive API والحصول على بيانات الاعتماد (credentials.json) اللازمة للوصول إلى Drive.
+3.  **بيئة Node.js:** مثبتة على جهازك.
+4.  **MongoDB Atlas أو MongoDB محلي:** لتخزين البيانات.
+
+---
+
+### الهيكل العام للمشروع والتقنيات المستخدمة:
+
+*   **Node.js:** بيئة التشغيل.
+*   **Telegraf:** إطار عمل (framework) لبناء بوتات تيليجرام.
+*   **Mongoose:** مكتبة ODM (Object Data Modeling) لـ MongoDB، تبسّط التعامل مع قواعد البيانات NoSQL.
+*   **Googleapis (Google Drive API):** للتفاعل مع Google Drive.
+*   **dotenv:** لإدارة متغيرات البيئة (مثل التوكنات ومفاتيح الـ API).
+
+---
+
+### **الجزء 1: الإعدادات الأولية للمشروع**
+
+#### 1.1. إنشاء مجلد للمشروع وتهيئة Node.js:
+
+```bash
+mkdir telegram-lectures-bot
+cd telegram-lectures-bot
+npm init -y
+```
+
+#### 1.2. تثبيت المكتبات اللازمة:
+
+```bash
+npm install telegraf mongoose googleapis dotenv
+```
+
+#### 1.3. إنشاء ملف `.env` (لمتغيرات البيئة):
+
+أنشئ ملفاً باسم `.env` في جذر المشروع وضع فيه المتغيرات التالية. سنقوم بملئها لاحقاً.
+
+```
+BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
+MONGO_URI=YOUR_MONGODB_CONNECTION_STRING
+GOOGLE_DRIVE_CLIENT_ID=
+GOOGLE_DRIVE_CLIENT_SECRET=
+GOOGLE_DRIVE_REDIRECT_URI=
+GOOGLE_DRIVE_REFRESH_TOKEN= # سنحصل عليه لاحقاً
+GOOGLE_DRIVE_FOLDER_ID=YOUR_GOOGLE_DRIVE_FOLDER_ID # ID للمجلد الذي ستخزن فيه المحاضرات
+ADMIN_TELEGRAM_ID=YOUR_ADMIN_TELEGRAM_ID # رقم تعريف حسابك في تيليجرام (يمكنك الحصول عليه من @userinfobot)
+```
+
+**شرح الحصول على المتغيرات:**
+
+*   **`BOT_TOKEN`**: من BotFather في تيليجرام.
+*   **`MONGO_URI`**: سلسلة الاتصال بقاعدة بيانات MongoDB (مثال: `mongodb+srv://user:pass@cluster.mongodb.net/lectures?retryWrites=true&w=majority`).
+*   **`GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REDIRECT_URI`**: من Google Cloud Console (APIs & Services -> Credentials). ستحتاج لإنشاء "OAuth 2.0 Client IDs" من نوع "Web application" وتحديد `http://localhost:3000/oauth2callback` (أو أي منفذ تحبه) كـ "Authorized redirect URIs".
+*   **`GOOGLE_DRIVE_REFRESH_TOKEN`**: هذا يحتاج إلى عملية مصادقة أولية (مرة واحدة) للحصول عليه. سأشرح كيف في جزء لاحق.
+*   **`GOOGLE_DRIVE_FOLDER_ID`**: افتح Google Drive، أنشئ مجلدًا جديدًا للمحاضرات، ثم انسخ الـ ID من رابط المجلد (مثال: `https://drive.google.com/drive/folders/YOUR_FOLDER_ID_HERE`).
+*   **`ADMIN_TELEGRAM_ID`**: ابحث عن البوت `@userinfobot` في تيليجرام، اضغط "ابدأ" وسيعطيك الـ ID الخاص بك.
+
+---
+
+### **الجزء 2: قاعدة البيانات (Mongoose Models)**
+
+سنحتاج لنموذجين: `Class` و `Lecture`.
+
+أنشئ ملفاً باسم `models/index.js`:
+
+```javascript
+// models/index.js
+const mongoose = require('mongoose');
+
+const classSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    description: String,
+    lectures: [ // مصفوفة لتخزين معرفات المحاضرات المرتبطة بهذا الصف
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Lecture'
+        }
+    ]
+}, { timestamps: true });
+
+const lectureSchema = new mongoose.Schema({
+    name: { // اسم المحاضرة، سيأتي من اسم الملف
+        type: String,
+        required: true
+        // unique: true // لا نجعله فريداً على مستوى جميع المحاضرات، بل ضمن سياق الصف
+    },
+    originalFileName: { // اسم الملف الأصلي المرسل من قبل المستخدم
+        type: String,
+        required: true
+    },
+    googleDriveId: { // ID الملف في Google Drive
+        type: String,
+        required: true,
+        unique: true
+    },
+    googleDriveLink: { // رابط الملف (للاستخدام الداخلي إذا لزم الأمر)
+        type: String,
+        required: true
+    },
+    parentClass: { // الصف الذي تنتمي إليه هذه المحاضرة
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Class',
+        required: true
+    }
+}, { timestamps: true });
+
+const Class = mongoose.model('Class', classSchema);
+const Lecture = mongoose.model('Lecture', lectureSchema);
+
+module.exports = { Class, Lecture };
+```
+
+---
+
+### **الجزء 3: التعامل مع Google Drive API**
+
+هذا الجزء هو الأكثر تعقيدًا قليلاً. سنحتاج إلى تهيئة Google Drive API وإنشاء وظائف لرفع الملفات والبحث عنها.
+
+#### 3.1. المصادقة للحصول على Refresh Token (مرة واحدة فقط):
+
+أنشئ ملفاً منفصلاً لمرة واحدة للحصول على الـ `GOOGLE_DRIVE_REFRESH_TOKEN`.
+سميه `getRefreshToken.js`:
+
+```javascript
+// getRefreshToken.js
+require('dotenv').config();
+const { google } = require('googleapis');
+const express = require('express');
+const app = express();
+const port = 3000; // تأكد أن هذا نفس الـ REDIRECT_URI في Google Cloud Console
+
+const CLIENT_ID = process.env.GOOGLE_DRIVE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+const REDIRECT_URI = process.env.GOOGLE_DRIVE_REDIRECT_URI; // يجب أن يكون http://localhost:3000/oauth2callback أو المنفذ الذي اخترته
+
+const oAuth2Client = new google.auth.OAuth2(
+    CLIENT_ID,
+    CLIENT_SECRET,
+    REDIRECT_URI
+);
+
+const authUrl = oAuth2Client.generateAuthUrl({
+    access_type: 'offline', // مهم جداً للحصول على refresh token
+    scope: ['https://www.googleapis.com/auth/drive'],
+});
+
+console.log('Open this URL in your browser to authorize the app:', authUrl);
+
+app.get('/oauth2callback', async (req, res) => {
+    const { code } = req.query;
+    if (!code) {
+        return res.status(400).send('No authorization code provided.');
+    }
+
+    try {
+        const { tokens } = await oAuth2Client.getToken(code);
+        oAuth2Client.setCredentials(tokens);
+        console.log('Successfully authorized!');
+        console.log('Your Refresh Token:', tokens.refresh_token);
+        res.send('Authorization successful! Your refresh token has been logged to the console. Please add it to your .env file.');
+        process.exit(); // إنهاء السيرفر بعد الحصول على الـ token
+    } catch (error) {
+        console.error('Error retrieving access token:', error);
+        res.status(500).send('Error during authorization.');
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+});
+
+// خطوات التشغيل:
+// 1. تأكد من أن REDIRECT_URI في .env و Google Cloud Console هو http://localhost:3000/oauth2callback (أو المنفذ الذي اخترته).
+// 2. npm install express
+// 3. node getRefreshToken.js
+// 4. اتبع الرابط الذي يظهر في الكونسول، قم بالموافقة.
+// 5. ستتم إعادة توجيهك إلى http://localhost:3000/oauth2callback، وسيظهر الـ token في الكونسول.
+// 6. انسخ الـ CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, و REFRESH_TOKEN إلى ملف .env الرئيسي لديك.
+// 7. احذف `getRefreshToken.js` أو لا تشغله مرة أخرى.
+```
+
+#### 3.2. خدمة Google Drive في البوت:
+
+أنشئ ملفاً باسم `utils/googleDrive.js`:
+
+```javascript
+// utils/googleDrive.js
+require('dotenv').config();
+const { google } = require('googleapis');
+const fs = require('fs');
+const readline = require('readline'); // لإرسال الملفات كـ streams
+
+const CLIENT_ID = process.env.GOOGLE_DRIVE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_DRIVE_CLIENT_SECRET;
+const REDIRECT_URI = process.env.GOOGLE_DRIVE_REDIRECT_URI;
+const REFRESH_TOKEN = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+const oAuth2Client = new google.auth.OAuth2(
+    CLIENT_ID,
+    CLIENT_SECRET,
+    REDIRECT_URI
+);
+
+oAuth2Client.setCredentials({ refresh_token: REFRESH_TOKEN });
+
+const drive = google.drive({ version: 'v3', auth: oAuth2Client });
+
+// رفع ملف إلى Google Drive
+async function uploadFile(filePath, fileName, mimeType) {
+    try {
+        const response = await drive.files.create({
+            requestBody: {
+                name: fileName,
+                parents: [GOOGLE_DRIVE_FOLDER_ID],
+            },
+            media: {
+                mimeType: mimeType,
+                body: fs.createReadStream(filePath),
+            },
+            fields: 'id,webViewLink', // لطلب ID ورابط العرض
+        });
+        console.log('File uploaded to Google Drive:', response.data.id);
+        return {
+            id: response.data.id,
+            link: response.data.webViewLink,
+        };
+    } catch (error) {
+        console.error('Error uploading file to Google Drive:', error);
+        throw error;
+    }
+}
+
+// تنزيل ملف من Google Drive وإعادته كـ ReadStream
+async function downloadFile(fileId) {
+    try {
+        const response = await drive.files.get(
+            { fileId: fileId, alt: 'media' },
+            { responseType: 'stream' }
+        );
+        return response.data;
+    } catch (error) {
+        console.error('Error downloading file from Google Drive:', error);
+        throw error;
+    }
+}
+
+// حذف ملف من Google Drive
+async function deleteFile(fileId) {
+    try {
+        await drive.files.delete({ fileId: fileId });
+        console.log(`File with ID ${fileId} deleted from Google Drive.`);
+        return true;
+    } catch (error) {
+        console.error('Error deleting file from Google Drive:', error);
+        throw error;
+    }
+}
+
+module.exports = { uploadFile, downloadFile, deleteFile };
+```
+
+---
+
+### **الجزء 4: البوت (Telegraf Logic)**
+
+الآن نأتي إلى الجزء الأهم، بوت تيليجرام.
+
+أنشئ ملفاً باسم `bot.js` في جذر المشروع:
+
+```javascript
+// bot.js
+require('dotenv').config();
+const { Telegraf, Markup } = require('telegraf');
+const mongoose = require('mongoose');
+const { Class, Lecture } = require('./models');
+const { uploadFile, downloadFile, deleteFile } = require('./utils/googleDrive');
+const fs = require('fs');
+const path = require('path');
+
+const bot = new Telegraf(process.env.BOT_TOKEN);
+const ADMIN_ID = parseInt(process.env.ADMIN_TELEGRAM_ID); // تأكد أنه رقم
+
+// حالة البوت لكل مستخدم (خاصة بالأدمن لإدارة الـ CRUD)
+const userStates = new Map(); // Map<userId, { state: string, currentClassId: string/null, currentLectureId: string/null }>
+
+// الاتصال بقاعدة البيانات
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('Connected to MongoDB!'))
+    .catch(err => console.error('Could not connect to MongoDB', err));
+
+// وسيط (Middleware) للتحقق من هوية الأدمن
+const isAdmin = (ctx, next) => {
+    if (ctx.from.id === ADMIN_ID) {
+        return next();
+    }
+    ctx.reply('عذراً، هذه الأوامر مخصصة للمدير فقط.');
+};
+
+// ======================================
+// الوظائف المساعدة للوحة المفاتيح
+// ======================================
+
+const getMainAdminKeyboard = () => {
+    return Markup.inlineKeyboard([
+        [Markup.button.callback('إدارة الصفوف 📚', 'admin_manage_classes')],
+        [Markup.button.callback('العودة للقائمة الرئيسية 🏠', 'admin_main_menu')],
+    ]);
+};
+
+const getClassesKeyboard = async (prefix = 'class_') => {
+    const classes = await Class.find().sort({ name: 1 });
+    if (classes.length === 0) {
+        return Markup.inlineKeyboard([
+             [Markup.button.callback('إنشاء صف جديد ➕', 'admin_add_class')]
+        ]);
+    }
+    const buttons = classes.map(c => [Markup.button.callback(c.name, `${prefix}${c._id.toString()}`)]);
+    buttons.push([Markup.button.callback('إنشاء صف جديد ➕', 'admin_add_class')]);
+    buttons.push([Markup.button.callback('العودة 🔙', 'admin_manage_classes')]); // زر العودة
+    return Markup.inlineKeyboard(buttons);
+};
+
+const getClassActionsKeyboard = (classId) => {
+    return Markup.inlineKeyboard([
+        [Markup.button.callback('إدارة المحاضرات 📖', `admin_manage_lectures_${classId}`)],
+        [Markup.button.callback('تعديل اسم الصف ✏️', `admin_edit_class_name_${classId}`)],
+        [Markup.button.callback('حذف الصف 🗑️', `admin_delete_class_confirm_${classId}`)],
+        [Markup.button.callback('العودة للصفوف 🔙', 'admin_manage_classes')]
+    ]);
+};
+
+const getLecturesKeyboard = async (classId, prefix = 'lecture_') => {
+    const cls = await Class.findById(classId).populate('lectures');
+    if (!cls || cls.lectures.length === 0) {
+        return Markup.inlineKeyboard([
+            [Markup.button.callback('إضافة محاضرة جديدة ➕', `admin_add_lecture_${classId}`)],
+            [Markup.button.callback('العودة للصف 🔙', `admin_class_actions_${classId}`)]
+        ]);
+    }
+    const buttons = cls.lectures.map(lec => [Markup.button.callback(lec.name, `${prefix}${lec._id.toString()}`)]);
+    buttons.push([Markup.button.callback('إضافة محاضرة جديدة ➕', `admin_add_lecture_${classId}`)]);
+    buttons.push([Markup.button.callback('العودة للصف 🔙', `admin_class_actions_${classId}`)]);
+    return Markup.inlineKeyboard(buttons);
+};
+
+const getLectureActionsKeyboard = (lectureId, classId) => {
+    return Markup.inlineKeyboard([
+        [Markup.button.callback('تعديل اسم المحاضرة ✏️', `admin_edit_lecture_name_${lectureId}`)],
+        [Markup.button.callback('حذف المحاضرة 🗑️', `admin_delete_lecture_confirm_${lectureId}`)],
+        [Markup.button.callback('العودة للمحاضرات 🔙', `admin_manage_lectures_${classId}`)]
+    ]);
+};
+
+// لوحة مفاتيح العرض للمستخدمين العاديين
+const getUserClassesKeyboard = async () => {
+    const classes = await Class.find().sort({ name: 1 });
+    if (classes.length === 0) {
+        return Markup.inlineKeyboard([
+            [Markup.button.callback('لا توجد صفوف حالياً', 'no_classes_msg')]
+        ]);
+    }
+    const buttons = classes.map(c => [Markup.button.callback(c.name, `view_class_lectures_${c._id.toString()}`)]);
+    return Markup.inlineKeyboard(buttons);
+};
+
+const getUserLecturesKeyboard =
+
+
+///////////////////////////////////////////////////////////////
+
+
+أهلاً بك مجددًا! يا هلا والله! 😉
+
+بالتأكيد، لنكمل بناء البوت. الجزء السابق وضعنا الأساسات، الآن سنكمل منطق البوت (Telegraf Logic) وإدارة الحالة (State Management) والتفاعل مع المستخدمين.
+
+**تكملة الجزء 4: البوت (Telegraf Logic)**
+
+---
+
+```javascript
+// bot.js (تكملة)
+
+// ... (الجزء السابق من الكود: dotenv, telegraf, mongoose, googleDrive, isAdmin middleware) ...
+
+// -------------------------------------
+// حالات البوت (User States)
+// -------------------------------------
+// نستخدم Map لتتبع حالة كل مستخدم، لتسهيل عمليات الـ CRUD
+// مثال:
+// userStates = {
+//   userId1: { state: 'awaiting_class_name' },
+//   userId2: { state: 'awaiting_lecture_name', parentClass: 'class_id_abc' },
+//   userId3: { state: 'awaiting_file_upload', parentClass: 'class_id_xyz' }
+// }
+
+// -------------------------------------
+// الأوامر الرئيسية للبوت
+// -------------------------------------
+
+// الأمر /start
+bot.start(async (ctx) => {
+    const userId = ctx.from.id;
+    const userName = ctx.from.first_name;
+
+    // التحقق إذا كان المستخدم هو الأدمن
+    if (userId === ADMIN_ID) {
+        userStates.delete(userId); // مسح أي حالة سابقة للأدمن
+        ctx.reply(`أهلاً بك يا مدير! 👋\nيمكنك الآن إدارة الصفوف والمحاضرات عبر الأوامر التالية:`, getMainAdminKeyboard());
+    } else {
+        // للمستخدمين العاديين: عرض قائمة الصفوف
+        userStates.delete(userId); // مسح أي حالة سابقة للمستخدم
+        const keyboard = await getUserClassesKeyboard();
+        ctx.reply(`مرحباً ${userName}! 👋\nهنا يمكنك العثور على محاضرات الصفوف المختلفة. اختر الصف الذي تريده:`, keyboard);
+    }
+});
+
+// -------------------------------------
+// أوامر ووظائف الأدمن (CRUD Operations)
+// -------------------------------------
+
+// -------------- إدارة الصفوف (Classes) --------------
+
+// الدخول لوضع إدارة الصفوف
+bot.action('admin_manage_classes', isAdmin, async (ctx) => {
+    userStates.delete(ctx.from.id); // مسح أي حالة سابقة
+    ctx.editMessageText('اختر الصف الذي تريد إدارته أو قم بإنشاء صف جديد:', await getClassesKeyboard());
+});
+
+// إنشاء صف جديد (مرحلة 1: طلب الاسم)
+bot.action('admin_add_class', isAdmin, async (ctx) => {
+    userStates.set(ctx.from.id, { state: 'awaiting_class_name' });
+    ctx.editMessageText('الرجاء إدخال اسم الصف الجديد:', Markup.inlineKeyboard([Markup.button.callback('إلغاء ❌', 'admin_manage_classes')]));
+});
+
+// استقبال اسم الصف الجديد (المرحلة 2)
+bot.on('text', isAdmin, async (ctx) => { // نستخدم on('text') لأنه يعالج أي نص
+    const userId = ctx.from.id;
+    const text = ctx.message.text;
+    const state = userStates.get(userId);
+
+    if (state && state.state === 'awaiting_class_name') {
+        try {
+            const newClass = new Class({ name: text });
+            await newClass.save();
+            userStates.delete(userId); // تم الحفظ، امسح الحالة
+            ctx.reply(`تم إنشاء الصف "${text}" بنجاح! ✅`);
+            ctx.reply('الصفحات المتاحة:', await getClassesKeyboard()); // اعرض اللائحة المحدثة
+        } catch (error) {
+            console.error("Error creating class:", error);
+            if (error.code === 11000) { // Duplicate key error
+                ctx.reply('هذا الاسم للصف موجود بالفعل. الرجاء اختيار اسم آخر.', Markup.inlineKeyboard([Markup.button.callback('إلغاء ❌', 'admin_manage_classes')]));
+            } else {
+                ctx.reply('حدث خطأ أثناء إنشاء الصف. الرجاء المحاولة مرة أخرى.');
+            }
+        }
+    } else if (state && state.state === 'awaiting_lecture_name') {
+        // استقبال اسم المحاضرة الجديد (سنعالجه في جزء إدارة المحاضرات)
+        // هذه ليست الطريقة المثلى، سننتقل إلى معالجة الملفات بشكل أفضل لاحقاً
+        // الآن، إذا كان المستخدم في انتظار اسم محاضرة، فهذا يعني أنه أرسل نصًا بدلاً من ملف
+        ctx.reply('للأسف، يجب عليك إرسال الملف أو المستند مباشرة. أرسل اسم المحاضرة إذا لم تكن متأكداً، وسأحاول استخدام اسم الملف.');
+        // يمكن تحسين هذا للتعامل مع حالة "إعادة تسمية"
+    } else if (state && state.state === 'editing_class_name') {
+        try {
+            const classId = state.currentClassId;
+            const updatedClass = await Class.findByIdAndUpdate(classId, { name: text }, { new: true });
+            if (updatedClass) {
+                ctx.reply(`تم تحديث اسم الصف إلى "${text}". ✅`);
+                userStates.delete(userId);
+                ctx.reply('الصفحات المتاحة:', await getClassesKeyboard());
+            } else {
+                ctx.reply('لم يتم العثور على الصف لتعديله.');
+                userStates.delete(userId);
+            }
+        } catch (error) {
+            console.error("Error editing class name:", error);
+            ctx.reply('حدث خطأ أثناء تعديل اسم الصف. الرجاء المحاولة مرة أخرى.');
+        }
+    } else if (state && state.state === 'editing_lecture_name') {
+        try {
+            const lectureId = state.currentLectureId;
+            const classId = state.parentClass; // نحتاج معرف الصف الأم
+            const updatedLecture = await Lecture.findByIdAndUpdate(lectureId, { name: text }, { new: true });
+            if (updatedLecture) {
+                ctx.reply(`تم تحديث اسم المحاضرة إلى "${text}". ✅`);
+                userStates.delete(userId);
+                ctx.editMessageText(`اختر المحاضرة التي تريد إدارتها:`, await getLecturesKeyboard(classId));
+            } else {
+                ctx.reply('لم يتم العثور على المحاضرة لتعديلها.');
+                userStates.delete(userId);
+            }
+        } catch (error) {
+            console.error("Error editing lecture name:", error);
+            ctx.reply('حدث خطأ أثناء تعديل اسم المحاضرة. الرجاء المحاولة مرة أخرى.');
+        }
+    } else if (state && state.state === 'awaiting_file_upload') {
+         ctx.reply('هناك خطأ في الحالة. يبدو أنك في انتظار ملف، ولكنك أرسلت نصًا. الرجاء إرسال الملف مباشرة.');
+    } else {
+        // تجاهل النصوص العادية من الأدمن التي لا تتعلق بأمر حالي
+        // أو يمكن استخدامها لأوامر أخرى مستقبلًا
+    }
+});
+
+
+// استقبال زر اختيار صف معين
+bot.action(/^class_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const classId = ctx.match[1]; // استخراج الـ ID من النمط
+    userStates.delete(ctx.from.id); // مسح أي حالة لجعل الصفحة نظيفة
+    ctx.editMessageText('اختر الإجراء الذي تريد تنفيذه لهذا الصف:', await getClassActionsKeyboard(classId));
+});
+
+// تعديل اسم الصف (مرحلة 1: الذهاب لحالة الانتظار)
+bot.action(/^admin_edit_class_name_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const classId = ctx.match[1];
+    userStates.set(ctx.from.id, { state: 'editing_class_name', currentClassId: classId });
+    ctx.editMessageText('الرجاء إدخال الاسم الجديد للصف:', Markup.inlineKeyboard([Markup.button.callback('إلغاء ❌', `admin_class_actions_${classId}`)]));
+});
+
+// تأكيد حذف الصف (مرحلة 1: طلب التأكيد)
+bot.action(/^admin_delete_class_confirm_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const classId = ctx.match[1];
+    ctx.editMessageText('هل أنت متأكد من أنك تريد حذف هذا الصف وجميع محاضراته؟ هذا الإجراء لا يمكن التراجع عنه.', Markup.inlineKeyboard([
+        [Markup.button.callback('نعم، بالتأكيد 🗑️', `admin_delete_class_${classId}`)],
+        [Markup.button.callback('لا، إلغاء ❌', `admin_class_actions_${classId}`)]
+    ]));
+});
+
+// تنفيذ حذف الصف (مرحلة 2: الحذف الفعلي)
+bot.action(/^admin_delete_class_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const classId = ctx.match[1];
+    try {
+        // 1. جلب المحاضرات المرتبطة بهذا الصف
+        const cls = await Class.findById(classId).populate('lectures');
+        if (!cls) {
+            return ctx.reply('الصف غير موجود.', getMainAdminKeyboard());
+        }
+
+        // 2. حذف المحاضرات من Google Drive وقاعدة البيانات
+        for (const lecture of cls.lectures) {
+            await deleteFile(lecture.googleDriveId);
+            await Lecture.findByIdAndDelete(lecture._id);
+        }
+
+        // 3. حذف الصف نفسه من قاعدة البيانات
+        await Class.findByIdAndDelete(classId);
+
+        ctx.reply(`تم حذف الصف "${cls.name}" وجميع محاضراته بنجاح. ✅`);
+        ctx.reply('الصفحات المتاحة:', await getClassesKeyboard()); // عرض اللائحة المحدثة
+    } catch (error) {
+        console.error("Error deleting class:", error);
+        ctx.reply('حدث خطأ أثناء حذف الصف. الرجاء المحاولة مرة أخرى.');
+    }
+});
+
+
+// -------------- إدارة المحاضرات (Lectures) --------------
+
+// الدخول لوضع إدارة المحاضرات لصف معين
+bot.action(/^admin_manage_lectures_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const classId = ctx.match[1];
+    userStates.delete(ctx.from.id); // مسح أي حالة
+    ctx.editMessageText('اختر المحاضرة التي تريد إدارتها أو قم بإضافة محاضرة جديدة:', await getLecturesKeyboard(classId));
+});
+
+// استقبال زر اختيار محاضرة معينة
+bot.action(/^lecture_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const lectureId = ctx.match[1];
+    // نحتاج لمعرفة أي صف هو الأب للوصول إلى لوحة الإجراءات الصحيحة
+    const lecture = await Lecture.findById(lectureId);
+    if (!lecture) {
+        return ctx.reply('المحاضرة غير موجودة.');
+    }
+    const classId = lecture.parentClass.toString(); // الحصول على ID الصف الأب
+
+    userStates.delete(ctx.from.id); // مسح أي حالة
+    ctx.editMessageText('اختر الإجراء الذي تريد تنفيذه لهذه المحاضرة:', getLectureActionsKeyboard(lectureId, classId));
+});
+
+
+// إضافة محاضرة جديدة (مرحلة 1: تحديد الصف وإعداد حالة الانتظار)
+bot.action(/^admin_add_lecture_([a-f0-9]{24})$/, isAdmin, async (ctx) => {
+    const classId = ctx.match[1];
+    const cls = await Class.findById(classId);
+    if (!cls) {
+        return ctx.reply('الصف غير موجود.');
+    }
+    userStates.set(ctx.from.id, { state: 'awaiting_file_upload', parentClass: classId });
+    ctx.editMessageText(`الرجاء إرسال الملف أو المستند الخاص بمحاضرة "${cls.name}".\n*سيتم استخدام اسم الملف كاسم للمحاضرة تلقائيًا.*`, Markup.inlineKeyboard([
+        [Markup.button.callback('إلغاء ❌', `admin_manage_lectures_${classId}`)]
+    ]));
+});
+
+
+// استقبال الملفات والمستندات (هذا هو الجزء الذي سيتم فيه الرفع لـ Drive)
+bot.on(['document', 'video', 'audio', 'photo'], isAdmin, async (ctx) => {
+    const userId = ctx.from.id;
+    const state = userStates.get(userId);
+
+    // نتأكد أن الأدمن في حالة انتظار ملف
+    if (!state || state.state !== 'awaiting_file_upload' || !state.parentClass) {
+        // إذا لم يكن في الحالة الصحيحة، تجاهل الملف أو قم بإجراء آخر
+        // قد يكون هذا ملف تم إرساله بالخطأ، أو في سياق آخر
+        // for example: ctx.reply("Please use the correct command to upload files.");
+        return;
+    }
+
+    const classId = state.parentClass;
+    let fileId, fileName, fileMimeType, fileStream, fileSize;
+
+    // تحديد نوع الملف والمحتوى
+    if (ctx.message.document) {
+        fileId = ctx.message.document.file_id;
+        fileName = ctx.message.document.file_name;
+        fileMimeType = ctx.message.document.mime_type;
+        fileSize = ctx.message.document.file_size;
+    } else if (ctx.message.photo) { // الصور ترسل كـ photo, نأخذ الأكبر
+        fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+        fileName = `${fileId}.jpg`; // اسم افتراضي للصور
+        fileMimeType = 'image/jpeg';
+        // لا يمكن الحصول على حجم الصورة مباشرة هنا بشكل سهل، و telegraf لا يوفر stream للصور
+        // سنحاول تنزيلها لاحقًا، وإذا فشل، سنخبر المستخدم
+    } else if (ctx.message.video) {
+        fileId = ctx.message.video.file_id;
+        fileName = ctx.message.video.file_name || `${fileId}.mp4`;
+        fileMimeType = ctx.message.video.mime_type || 'video/mp4';
+        fileSize = ctx.message.video.file_size;
+    } else if (ctx.message.audio) {
+        fileId = ctx.message.audio.file_id;
+        fileName = ctx.message.audio.file_name || `${fileId}.mp3`;
+        fileMimeType = ctx.message.audio.mime_type || 'audio/mpeg';
+        fileSize = ctx.message.audio.file_size;
+    }
+
+    // إذا لم يتم التعرف على نوع الملف المسموح به
+    if (!fileId) {
+        ctx.reply('نوع الملف غير مدعوم حاليًا.');
+        return;
+    }
+
+    // إعطاء رد فوري للمدير بأننا نستلم الملف
+    const loadingMsg = await ctx.reply(`جارٍ استلام الملف "${fileName}"...`);
+
+    try {
+        // 1. تحميل الملف من Telegram إلى خادمك مؤقتًا
+        const telegramFile = await ctx.telegram.getFile(fileId);
+        const telegramFileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${telegramFile.file_path}`;
+
+        // نستخدم fs.createWriteStream لكتابة الملف المؤقت
+        const tempFilePath = path.join(__dirname, 'temp_uploads', fileName);
+        if (!fs.existsSync(path.join(__dirname, 'temp_uploads'))) {
+            fs.mkdirSync(path.join(__dirname, 'temp_uploads'));
+        }
+        const writer = fs.createWriteStream(tempFilePath);
+
+        await new Promise((resolve, reject) => {
+            require('axios')({ // استخدام axios لتنزيل الملف
+                method: 'get',
+                url: telegramFileUrl,
+                responseType: 'stream'
+            })
+            .then(response => {
+                response.data.pipe(writer);
+                writer.on('finish', resolve);
+                writer.on('error', (err) => reject(`Error writing file stream: ${err}`));
+            })
+            .catch(err => reject(`Axios download error: ${err}`));
+        });
+
+        // 2. رفع الملف المؤقت إلى Google Drive
+        const driveFileInfo = await uploadFile(tempFilePath, fileName, fileMimeType);
+
+        // 3. حفظ معلومات المحاضرة في قاعدة البيانات
+        const newLecture = new Lecture({
+            name: fileName, // اسم المحاضرة هو اسمها الأصلي
+            originalFileName: fileName,
+            googleDriveId: driveFileInfo.id,
+            googleDriveLink: driveFileInfo.link,
+            parentClass: classId
+        });
+        await newLecture.save();
+
+        // 4. إضافة المحاضرة إلى الصف المرتبط
+        await Class.findByIdAndUpdate(classId, { $push: { lectures: newLecture._id } });
+
+        // 5. مسح الحالة بعد النجاح
+        userStates.delete(userId);
+
+        // 6. حذف الملف المؤقت من الخادم
+        fs.unlink(tempFilePath, (err) => {
+            if (err) console.error(`Error deleting temporary file ${tempFilePath}:`, err);
+        });
+
+        // 7. إرسال رسالة نجاح للمدير
+        await ctx.telegram.

@@ -1,7 +1,7 @@
 {
   "dependencies": {
-    "@telegraf/session": "^2.0.0-beta.7",
     "dotenv": "^17.3.1",
+    "googleapis": "^171.4.0",
     "https-proxy-agent": "^7.0.6",
     "mongodb": "^7.1.0",
     "mongoose": "^9.2.1",
