@@ -13,8 +13,17 @@ const {
   delClassWizard,
   delLectureWizard,
   broadcastWizard,
+  addArchiveWizard,
+  delArchiveWizard,
+  addCreativeWizard,
+  delCreativeWizard,
 } = require("./adminScenes");
-const { chooseStageWizard, browseClassesWizard } = require("./userScenes");
+const {
+  chooseStageWizard,
+  browseClassesWizard,
+  viewArchiveWizard,
+  viewCreativeWizard,
+} = require("./userScenes");
 
 mongoose
   .connect(process.env.DB.replace("<DB_PASSWORD>", process.env.DB_PASSWORD))
@@ -47,6 +56,12 @@ const stage = new Scenes.Stage([
   broadcastWizard,
   chooseStageWizard,
   browseClassesWizard,
+  viewArchiveWizard,
+  viewCreativeWizard,
+  addArchiveWizard,
+  delArchiveWizard,
+  addCreativeWizard,
+  delCreativeWizard,
 ]);
 bot.use(stage.middleware());
 
@@ -98,6 +113,27 @@ bot.hears("❌ Delete Lecture", (ctx) => {
 bot.hears("📢 Broadcast Message", (ctx) => {
   if (ctx.from.id.toString() === process.env.ADMIN_ID)
     ctx.scene.enter("BROADCAST_SCENE");
+});
+
+bot.hears("📦 Archive", (ctx) => ctx.scene.enter("VIEW_ARCHIVE_SCENE"));
+bot.hears("🎨 Creative Stuff", (ctx) => ctx.scene.enter("VIEW_CREATIVE_SCENE"));
+
+bot.hears("➕ Add Archive", (ctx) => {
+  if (ctx.from.id.toString() === process.env.ADMIN_ID)
+    ctx.scene.enter("ADD_ARCHIVE_SCENE");
+});
+bot.hears("➕ Add Creative", (ctx) => {
+  if (ctx.from.id.toString() === process.env.ADMIN_ID)
+    ctx.scene.enter("ADD_CREATIVE_SCENE");
+});
+
+bot.hears("❌ Delete Archive", (ctx) => {
+  if (ctx.from.id.toString() === process.env.ADMIN_ID)
+    ctx.scene.enter("DEL_ARCHIVE_SCENE");
+});
+bot.hears("❌ Delete Creative", (ctx) => {
+  if (ctx.from.id.toString() === process.env.ADMIN_ID)
+    ctx.scene.enter("DEL_CREATIVE_SCENE");
 });
 
 bot.launch().then(() => console.log("Bot is running nicely refactored!"));

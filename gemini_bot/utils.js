@@ -16,8 +16,13 @@ const timeIt = async (label, promise) => {
 const isCancel = (text) =>
   text === "❌ Cancel" || text === "🔙 Main Menu" || text?.startsWith("/");
 
+// ... existing timeIt and isCancel functions
+
 const mainMenuKeyboard = (ctx) => {
-  const buttons = [["📚 Browse Classes", "🔄 Switch Stage"]];
+  const buttons = [
+    ["📚 Browse Classes", "🔄 Switch Stage"],
+    ["📦 Archive", "🎨 Creative Stuff"], // <-- New user buttons
+  ];
   if (ctx.from?.id.toString() === process.env.ADMIN_ID) {
     buttons.push(["⚙️ Admin Panel"]);
   }
@@ -28,6 +33,8 @@ const adminPanelKeyboard = Markup.keyboard([
   ["➕ Add Stage", "❌ Delete Stage"],
   ["➕ Add Class", "❌ Delete Class"],
   ["➕ Add Lecture", "❌ Delete Lecture"],
+  ["➕ Add Archive", "❌ Delete Archive"], // <-- New admin buttons
+  ["➕ Add Creative", "❌ Delete Creative"], // <-- New admin buttons
   ["📢 Broadcast Message"],
   ["🔙 Main Menu"],
 ]).resize();

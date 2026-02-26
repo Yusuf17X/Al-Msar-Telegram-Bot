@@ -1,5 +1,14 @@
 const { Scenes, Markup } = require("telegraf");
-const { Stage, Class, Lecture, User } = require("./models");
+const {
+  Stage,
+  Class,
+  Lecture,
+  User,
+  Archive,
+  ArchiveFile,
+  Creative,
+  CreativeFile,
+} = require("./models");
 const { timeIt, isCancel, mainMenuKeyboard } = require("./utils");
 
 const chooseStageWizard = new Scenes.WizardScene(
@@ -93,4 +102,95 @@ const browseClassesWizard = new Scenes.WizardScene(
   },
 );
 
-module.exports = { chooseStageWizard, browseClassesWizard };
+// --- VIEW ARCHIVE SCENE ---
+const viewArchiveWizard = new Scenes.WizardScene(
+  "VIEW_ARCHIVE_SCENE",
+  async (ctx) => {
+    const archives = await timeIt("DB: Fetch Archives", Archive.find());
+    if (archives.length === 0)
+      return ctx.scene.leave(
+        ctx.reply("No archives available.", mainMenuKeyboard(ctx)),
+      );
+
+    ctx.reply(
+      "📦 Select an Archive:",
+      Markup.keyboard([
+        ...archives.map((a) => [a.name]),
+        ["🔙 Main Menu"],
+      ]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+
+    const archive = await Archive.findOne({ name: ctx.message.text });
+    if (!archive) return;
+
+    const files = await ArchiveFile.find({ archiveId: archive._id });
+    if (files.length === 0) return ctx.reply("This archive is empty.");
+
+    ctx.reply(`⏳ Sending ${files.length} files from ${archive.name}...`);
+    for (const file of files) {
+      try {
+        await ctx.telegram.sendDocument(ctx.chat.id, file.fileId);
+      } catch (e) {
+        await ctx.telegram.sendPhoto(ctx.chat.id, file.fileId).catch(() => {});
+      } // Fallback if it's an image
+    }
+  },
+);
+
+// --- VIEW CREATIVE SCENE ---
+const viewCreativeWizard = new Scenes.WizardScene(
+  "VIEW_CREATIVE_SCENE",
+  async (ctx) => {
+    const creatives = await timeIt("DB: Fetch Creatives", Creative.find());
+    if (creatives.length === 0)
+      return ctx.scene.leave(
+        ctx.reply("No creative topics available.", mainMenuKeyboard(ctx)),
+      );
+
+    ctx.reply(
+      "🎨 Select a Creative topic:",
+      Markup.keyboard([
+        ...creatives.map((c) => [c.name]),
+        ["🔙 Main Menu"],
+      ]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+
+    const creative = await Creative.findOne({ name: ctx.message.text });
+    if (!creative) return;
+
+    // Send the text message first
+    await ctx.reply(`🎨 **${creative.name}**\n\n${creative.text}`);
+
+    // Then send all associated files
+    const files = await CreativeFile.find({ creativeId: creative._id });
+    if (files.length > 0) {
+      ctx.reply(`⏳ Sending attached files...`);
+      for (const file of files) {
+        try {
+          await ctx.telegram.sendDocument(ctx.chat.id, file.fileId);
+        } catch (e) {
+          await ctx.telegram
+            .sendPhoto(ctx.chat.id, file.fileId)
+            .catch(() => {});
+        }
+      }
+    }
+  },
+);
+
+module.exports = {
+  chooseStageWizard,
+  browseClassesWizard,
+  viewArchiveWizard,
+  viewCreativeWizard,
+};

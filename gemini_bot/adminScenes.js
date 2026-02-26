@@ -1,5 +1,14 @@
 const { Scenes, Markup } = require("telegraf");
-const { Stage, Class, Lecture, User } = require("./models");
+const {
+  Stage,
+  Class,
+  Lecture,
+  User,
+  Archive,
+  ArchiveFile,
+  Creative,
+  CreativeFile,
+} = require("./models");
 const {
   timeIt,
   isCancel,
@@ -422,7 +431,303 @@ const broadcastWizard = new Scenes.WizardScene(
   },
 );
 
-// UPDATE YOUR EXPORTS AT THE BOTTOM:
+// --- ADD ARCHIVE WIZARD ---
+const addArchiveWizard = new Scenes.WizardScene(
+  "ADD_ARCHIVE_SCENE",
+  (ctx) => {
+    ctx.reply(
+      "📦 Type the name of the new Archive category:",
+      Markup.keyboard([["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    try {
+      const archive = await timeIt(
+        "DB: Create Archive",
+        Archive.create({ name: ctx.message.text }),
+      );
+      ctx.wizard.state.archiveId = archive._id;
+      ctx.wizard.state.files = [];
+
+      ctx.reply(
+        `✅ Archive "${archive.name}" created.\n\n📎 Send all files for this archive, then click '✅ Done'.`,
+        Markup.keyboard([["✅ Done"], ["❌ Cancel"]]).resize(),
+      );
+      return ctx.wizard.next();
+    } catch (e) {
+      return ctx.reply(
+        "❌ Error: Archive name might already exist. Try another name or click Cancel.",
+      );
+    }
+  },
+  async (ctx) => {
+    const text = ctx.message?.text;
+    if (isCancel(text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    if (ctx.message?.document || ctx.message?.photo || ctx.message?.video) {
+      ctx.wizard.state.files.push(ctx.message);
+      ctx.reply(`📥 Added to archive queue.`);
+      return;
+    }
+
+    if (text === "✅ Done") {
+      if (ctx.wizard.state.files.length === 0)
+        return ctx.reply("⚠️ Send files first!");
+      ctx.reply(
+        `⏳ Saving ${ctx.wizard.state.files.length} archive files...`,
+        Markup.removeKeyboard(),
+      );
+
+      const sortedFiles = ctx.wizard.state.files.sort(
+        (a, b) => a.message_id - b.message_id,
+      );
+
+      for (const msg of sortedFiles) {
+        // Determine file type (document, photo, or video) to grab the right file_id
+        let fileId, title;
+        if (msg.document) {
+          fileId = msg.document.file_id;
+          title = msg.document.file_name || "Document";
+        } else if (msg.photo) {
+          fileId = msg.photo[msg.photo.length - 1].file_id;
+          title = "Photo";
+        } else if (msg.video) {
+          fileId = msg.video.file_id;
+          title = "Video";
+        }
+
+        try {
+          const channelMsg = await ctx.telegram.sendCopy(
+            process.env.CHANNEL_ID,
+            msg,
+          );
+          await ArchiveFile.create({
+            archiveId: ctx.wizard.state.archiveId,
+            fileId: fileId,
+            title: title,
+            channelMsgId: channelMsg.message_id,
+          });
+        } catch (error) {}
+      }
+      ctx.reply("✅ Archive upload finished.", adminPanelKeyboard);
+      return ctx.scene.leave();
+    }
+    ctx.reply("⚠️ Please send a file or click '✅ Done'.");
+  },
+);
+
+// --- ADD CREATIVE WIZARD ---
+const addCreativeWizard = new Scenes.WizardScene(
+  "ADD_CREATIVE_SCENE",
+  (ctx) => {
+    ctx.reply(
+      "🎨 Type the title of the Creative topic (e.g., 'Good Presentation'):",
+      Markup.keyboard([["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+    ctx.wizard.state.creativeName = ctx.message.text;
+
+    ctx.reply("✍️ Now, send the text message/description for this topic:");
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    try {
+      // 1. Send text to channel
+      const channelMsg = await ctx.telegram.sendMessage(
+        process.env.CHANNEL_ID,
+        `🎨 **${ctx.wizard.state.creativeName}**\n\n${ctx.message.text}`,
+      );
+      // 2. Save to DB
+      const creative = await timeIt(
+        "DB: Create Creative",
+        Creative.create({
+          name: ctx.wizard.state.creativeName,
+          text: ctx.message.text,
+          channelMsgId: channelMsg.message_id,
+        }),
+      );
+
+      ctx.wizard.state.creativeId = creative._id;
+      ctx.wizard.state.files = [];
+
+      ctx.reply(
+        "✅ Text saved.\n\n📎 Now send any attached files/images for this topic, then click '✅ Done'.",
+        Markup.keyboard([["✅ Done"], ["❌ Cancel"]]).resize(),
+      );
+      return ctx.wizard.next();
+    } catch (e) {
+      return ctx.reply("❌ Error saving text. Try again or Cancel.");
+    }
+  },
+  async (ctx) => {
+    const text = ctx.message?.text;
+    if (isCancel(text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    if (ctx.message?.document || ctx.message?.photo || ctx.message?.video) {
+      ctx.wizard.state.files.push(ctx.message);
+      ctx.reply(`📥 Added to creative queue.`);
+      return;
+    }
+
+    if (text === "✅ Done") {
+      ctx.reply(
+        `⏳ Saving ${ctx.wizard.state.files.length} creative files...`,
+        Markup.removeKeyboard(),
+      );
+      const sortedFiles = ctx.wizard.state.files.sort(
+        (a, b) => a.message_id - b.message_id,
+      );
+
+      for (const msg of sortedFiles) {
+        let fileId, title;
+        if (msg.document) {
+          fileId = msg.document.file_id;
+          title = msg.document.file_name || "Document";
+        } else if (msg.photo) {
+          fileId = msg.photo[msg.photo.length - 1].file_id;
+          title = "Photo";
+        } else if (msg.video) {
+          fileId = msg.video.file_id;
+          title = "Video";
+        }
+
+        try {
+          const channelMsg = await ctx.telegram.sendCopy(
+            process.env.CHANNEL_ID,
+            msg,
+          );
+          await CreativeFile.create({
+            creativeId: ctx.wizard.state.creativeId,
+            fileId: fileId,
+            title: title,
+            channelMsgId: channelMsg.message_id,
+          });
+        } catch (error) {}
+      }
+      ctx.reply("✅ Creative topic fully saved.", adminPanelKeyboard);
+      return ctx.scene.leave();
+    }
+    ctx.reply("⚠️ Please send a file or click '✅ Done'.");
+  },
+);
+
+// --- DELETE ARCHIVE WIZARD ---
+const delArchiveWizard = new Scenes.WizardScene(
+  "DEL_ARCHIVE_SCENE",
+  async (ctx) => {
+    const archives = await timeIt("DB: Fetch Archives", Archive.find());
+    if (archives.length === 0)
+      return ctx.scene.leave(
+        ctx.reply("No archives to delete.", adminPanelKeyboard),
+      );
+
+    ctx.reply(
+      "⚠️ Select an Archive to PERMANENTLY delete (this deletes all its files):",
+      Markup.keyboard([
+        ...archives.map((a) => [a.name]),
+        ["❌ Cancel"],
+      ]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+    const archive = await Archive.findOne({ name: ctx.message.text });
+    if (!archive) return ctx.reply("Select a valid archive.");
+
+    ctx.reply("⏳ Deleting archive and cleaning up files...");
+
+    // Cascade delete files from channel and DB
+    const files = await ArchiveFile.find({ archiveId: archive._id });
+    for (const f of files) {
+      try {
+        await ctx.telegram.deleteMessage(
+          process.env.CHANNEL_ID,
+          f.channelMsgId,
+        );
+      } catch (e) {}
+    }
+    await ArchiveFile.deleteMany({ archiveId: archive._id });
+    await Archive.findByIdAndDelete(archive._id);
+
+    ctx.reply(
+      `✅ Archive "${archive.name}" and all its files deleted.`,
+      adminPanelKeyboard,
+    );
+    return ctx.scene.leave();
+  },
+);
+
+// --- DELETE CREATIVE WIZARD ---
+const delCreativeWizard = new Scenes.WizardScene(
+  "DEL_CREATIVE_SCENE",
+  async (ctx) => {
+    const creatives = await timeIt("DB: Fetch Creatives", Creative.find());
+    if (creatives.length === 0)
+      return ctx.scene.leave(
+        ctx.reply("No creative topics to delete.", adminPanelKeyboard),
+      );
+
+    ctx.reply(
+      "⚠️ Select a Creative topic to PERMANENTLY delete (this deletes text and files):",
+      Markup.keyboard([
+        ...creatives.map((c) => [c.name]),
+        ["❌ Cancel"],
+      ]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+    const creative = await Creative.findOne({ name: ctx.message.text });
+    if (!creative) return ctx.reply("Select a valid creative topic.");
+
+    ctx.reply("⏳ Deleting creative topic and cleaning up files...");
+
+    // 1. Delete the main text message from the channel
+    try {
+      await ctx.telegram.deleteMessage(
+        process.env.CHANNEL_ID,
+        creative.channelMsgId,
+      );
+    } catch (e) {}
+
+    // 2. Cascade delete all attached files from channel and DB
+    const files = await CreativeFile.find({ creativeId: creative._id });
+    for (const f of files) {
+      try {
+        await ctx.telegram.deleteMessage(
+          process.env.CHANNEL_ID,
+          f.channelMsgId,
+        );
+      } catch (e) {}
+    }
+    await CreativeFile.deleteMany({ creativeId: creative._id });
+    await Creative.findByIdAndDelete(creative._id);
+
+    ctx.reply(
+      `✅ Creative topic "${creative.name}" and all its files deleted.`,
+      adminPanelKeyboard,
+    );
+    return ctx.scene.leave();
+  },
+);
+
 module.exports = {
   addStageWizard,
   addClassWizard,
@@ -430,5 +735,11 @@ module.exports = {
   delStageWizard,
   delClassWizard,
   delLectureWizard,
+  delArchiveWizard,
+  addArchiveWizard,
+  addCreativeWizard,
+  delCreativeWizard,
   broadcastWizard,
+  delArchiveWizard,
+  delCreativeWizard,
 };
