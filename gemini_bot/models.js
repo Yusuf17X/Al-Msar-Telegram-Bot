@@ -1,9 +1,16 @@
 const mongoose = require("mongoose");
 
-const classSchema = new mongoose.Schema({
+const stageSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
 });
-
+const classSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  stageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Stage",
+    required: true,
+  },
+});
 const lectureSchema = new mongoose.Schema({
   title: { type: String, required: true },
   classId: {
@@ -11,11 +18,22 @@ const lectureSchema = new mongoose.Schema({
     ref: "Class",
     required: true,
   },
-  fileId: { type: String, required: true }, // The Telegram File ID
-  fileType: { type: String, required: true }, // pdf or pptx
+  fileId: { type: String, required: true },
+  fileType: { type: String, required: true },
+  channelMsgId: { type: Number, required: true },
+});
+const userSchema = new mongoose.Schema({
+  chatId: { type: String, required: true, unique: true },
+  stageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Stage",
+    default: null,
+  },
 });
 
-const Class = mongoose.model("Class", classSchema);
-const Lecture = mongoose.model("Lecture", lectureSchema);
-
-module.exports = { Class, Lecture };
+module.exports = {
+  Stage: mongoose.model("Stage", stageSchema),
+  Class: mongoose.model("Class", classSchema),
+  Lecture: mongoose.model("Lecture", lectureSchema),
+  User: mongoose.model("User", userSchema),
+};
