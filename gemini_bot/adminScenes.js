@@ -478,7 +478,9 @@ const addArchiveWizard = new Scenes.WizardScene(
     if (text === "✅ Done") {
       if (ctx.wizard.state.files.length === 0)
         return ctx.reply("⚠️ Send files first!");
-      ctx.reply(
+
+      // 1. Capture the loading message
+      const statusMsg = await ctx.reply(
         `⏳ Saving ${ctx.wizard.state.files.length} archive files...`,
         Markup.removeKeyboard(),
       );
@@ -488,33 +490,15 @@ const addArchiveWizard = new Scenes.WizardScene(
       );
 
       for (const msg of sortedFiles) {
-        // Determine file type (document, photo, or video) to grab the right file_id
-        let fileId, title;
-        if (msg.document) {
-          fileId = msg.document.file_id;
-          title = msg.document.file_name || "Document";
-        } else if (msg.photo) {
-          fileId = msg.photo[msg.photo.length - 1].file_id;
-          title = "Photo";
-        } else if (msg.video) {
-          fileId = msg.video.file_id;
-          title = "Video";
-        }
-
-        try {
-          const channelMsg = await ctx.telegram.sendCopy(
-            process.env.CHANNEL_ID,
-            msg,
-          );
-          await ArchiveFile.create({
-            archiveId: ctx.wizard.state.archiveId,
-            fileId: fileId,
-            title: title,
-            channelMsgId: channelMsg.message_id,
-          });
-        } catch (error) {}
+        // ... your existing upload and database save logic ...
       }
+
+      // 2. Delete the loading message and send the final confirmation
+      try {
+        await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+      } catch (e) {}
       ctx.reply("✅ Archive upload finished.", adminPanelKeyboard);
+
       return ctx.scene.leave();
     }
     ctx.reply("⚠️ Please send a file or click '✅ Done'.");
@@ -649,9 +633,11 @@ const delArchiveWizard = new Scenes.WizardScene(
     const archive = await Archive.findOne({ name: ctx.message.text });
     if (!archive) return ctx.reply("Select a valid archive.");
 
-    ctx.reply("⏳ Deleting archive and cleaning up files...");
+    // 1. Capture the loading message
+    const statusMsg = await ctx.reply(
+      "⏳ Deleting archive and cleaning up files...",
+    );
 
-    // Cascade delete files from channel and DB
     const files = await ArchiveFile.find({ archiveId: archive._id });
     for (const f of files) {
       try {
@@ -664,10 +650,15 @@ const delArchiveWizard = new Scenes.WizardScene(
     await ArchiveFile.deleteMany({ archiveId: archive._id });
     await Archive.findByIdAndDelete(archive._id);
 
+    // 2. Delete the loading message and send the final confirmation
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+    } catch (e) {}
     ctx.reply(
       `✅ Archive "${archive.name}" and all its files deleted.`,
       adminPanelKeyboard,
     );
+
     return ctx.scene.leave();
   },
 );

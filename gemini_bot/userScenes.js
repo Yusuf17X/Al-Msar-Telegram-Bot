@@ -92,13 +92,20 @@ const browseClassesWizard = new Scenes.WizardScene(
     });
     if (!lecture) return;
 
-    ctx.reply(`⏳ Sending ${lecture.title}...`);
+    // 1. Capture the loading message
+    const statusMsg = await ctx.reply(`⏳ Sending ${lecture.title}...`);
+
     await timeIt(
       `TG: Send file ${lecture.title}`,
       ctx.telegram.sendDocument(ctx.chat.id, lecture.fileId, {
         caption: lecture.title,
       }),
     );
+
+    // 2. Delete the loading message once finished
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+    } catch (e) {}
   },
 );
 
@@ -168,13 +175,14 @@ const viewCreativeWizard = new Scenes.WizardScene(
     const creative = await Creative.findOne({ name: ctx.message.text });
     if (!creative) return;
 
-    // Send the text message first
+    // Send the text message first (we keep this one permanently)
     await ctx.reply(`🎨 **${creative.name}**\n\n${creative.text}`);
 
-    // Then send all associated files
     const files = await CreativeFile.find({ creativeId: creative._id });
     if (files.length > 0) {
-      ctx.reply(`⏳ Sending attached files...`);
+      // 1. Capture the loading message
+      const statusMsg = await ctx.reply(`⏳ Sending attached files...`);
+
       for (const file of files) {
         try {
           await ctx.telegram.sendDocument(ctx.chat.id, file.fileId);
@@ -184,6 +192,11 @@ const viewCreativeWizard = new Scenes.WizardScene(
             .catch(() => {});
         }
       }
+
+      // 2. Delete the loading message once finished
+      try {
+        await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+      } catch (e) {}
     }
   },
 );
