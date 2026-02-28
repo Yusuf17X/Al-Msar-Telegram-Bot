@@ -44,68 +44,168 @@ const chooseStageWizard = new Scenes.WizardScene(
 
 const browseClassesWizard = new Scenes.WizardScene(
   "BROWSE_CLASSES_SCENE",
+
+  // STEP 1: Show Classes + Optional Homework/Schedule Buttons
   async (ctx) => {
     const user = await User.findOne({ chatId: ctx.chat.id.toString() });
+    if (!user || !user.stageId)
+      return ctx.scene.leave(ctx.reply("⚠️ You haven't selected a stage yet."));
+
+    // Fetch the Stage to check for Homework/Schedule
+    const stage = await Stage.findById(user.stageId);
+    ctx.wizard.state.stage = stage; // Save for the next step
+
     const classes = await timeIt(
       "DB: Fetch Classes (User)",
       Class.find({ stageId: user.stageId }),
     );
-    ctx.reply(
-      "📚 Choose a class:",
-      Markup.keyboard([
-        ...classes.map((c) => [c.name]),
-        ["🔙 Main Menu"],
-      ]).resize(),
-    );
-    return ctx.wizard.next();
-  },
-  async (ctx) => {
-    if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
-    const selectedClass = await Class.findOne({ name: ctx.message.text });
-    if (!selectedClass) return;
 
-    ctx.wizard.state.classId = selectedClass._id;
-    const lectures = await timeIt(
-      "DB: Fetch Lectures (User)",
-      Lecture.find({ classId: selectedClass._id }),
-    );
+    const buttons = classes.map((c) => [c.name]);
+
+    // --- Inject Homework/Schedule if they exist ---
+    const updatesRow = [];
+    if (stage.homeworkText) updatesRow.push("📝 Homework");
+    if (stage.scheduleImageId) updatesRow.push("📅 Schedule");
+
+    if (updatesRow.length > 0) {
+      buttons.unshift(updatesRow); // Put them at the very top
+    }
+
+    buttons.push(["🔙 Main Menu"]);
+
     ctx.reply(
-      "📄 Select a lecture to download:",
-      Markup.keyboard([
-        ...lectures.map((l) => [l.title]),
-        ["🔙 Back to Classes", "🔙 Main Menu"],
-      ]).resize(),
+      "📚 Choose a class or view updates:",
+      Markup.keyboard(buttons).resize(),
     );
     return ctx.wizard.next();
   },
+
+  // STEP 2: Handle Class Click OR Homework/Schedule Clicks
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text))
       return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+
+    const stage = ctx.wizard.state.stage;
+
+    // --- Intercept Homework/Schedule Clicks (Stay in Step 2) ---
+    if (text === "📝 Homework" && stage.homeworkText) {
+      await ctx.reply(`📝 **Homework Updates:**\n\n${stage.homeworkText}`);
+      return;
+    }
+    if (text === "📅 Schedule" && stage.scheduleImageId) {
+      await ctx.telegram.sendPhoto(ctx.chat.id, stage.scheduleImageId, {
+        caption: "📅 Current Schedule",
+      });
+      return;
+    }
+
+    // --- Process Class Selection ---
+    const selectedClass = await Class.findOne({
+      name: text,
+      stageId: stage._id,
+    });
+    if (!selectedClass) return ctx.reply("⚠️ Please select a valid option.");
+
+    ctx.wizard.state.classId = selectedClass._id;
+
+    const lectures = await timeIt(
+      "DB: Fetch Lectures (User)",
+      Lecture.find({ classId: selectedClass._id }),
+    );
+
+    // Split lectures by category
+    const theoryLectures = lectures.filter((l) => l.category !== "lab");
+    const labLectures = lectures.filter((l) => l.category === "lab");
+
+    // Save them to state so Step 3 can use them to build the folders
+    ctx.wizard.state.theoryLectures = theoryLectures;
+    ctx.wizard.state.labLectures = labLectures;
+
+    const lectureButtons = theoryLectures.map((l) => [l.title]);
+
+    // Add the Lab Folder button if labs exist
+    if (labLectures.length > 0) {
+      lectureButtons.unshift(["🔬 Lab Lectures"]);
+    }
+
+    lectureButtons.push(["🔙 Back to Classes", "🔙 Main Menu"]);
+
+    ctx.reply(
+      `📖 **${selectedClass.name}**\n\nSelect a lecture:`,
+      Markup.keyboard(lectureButtons).resize(),
+    );
+    return ctx.wizard.next();
+  },
+
+  // STEP 3: Handle Lecture Download OR Lab Folder Navigation
+  async (ctx) => {
+    const text = ctx.message?.text;
+    if (isCancel(text))
+      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+
     if (text === "🔙 Back to Classes")
       return ctx.scene.enter("BROWSE_CLASSES_SCENE");
 
+    // --- Intercept "Back to Lectures" (Navigating out of the Lab folder) ---
+    if (text === "🔙 Back to Lectures") {
+      const theoryButtons = ctx.wizard.state.theoryLectures.map((l) => [
+        l.title,
+      ]);
+      if (ctx.wizard.state.labLectures.length > 0)
+        theoryButtons.unshift(["🔬 Lab Lectures"]);
+      theoryButtons.push(["🔙 Back to Classes", "🔙 Main Menu"]);
+
+      await ctx.reply(
+        "📖 Main Lectures:",
+        Markup.keyboard(theoryButtons).resize(),
+      );
+      return; // Stay in Step 3
+    }
+
+    // --- Intercept Lab Folder Click (Navigating into the Lab folder) ---
+    if (
+      text === "🔬 Lab Lectures" &&
+      ctx.wizard.state.labLectures?.length > 0
+    ) {
+      const labButtons = ctx.wizard.state.labLectures.map((l) => [l.title]);
+      labButtons.push(["🔙 Back to Lectures", "🔙 Main Menu"]);
+
+      await ctx.reply(
+        "🔬 **Lab Lectures:**\n\nSelect a lab:",
+        Markup.keyboard(labButtons).resize(),
+      );
+      return; // Stay in Step 3
+    }
+
+    // --- Process Lecture Download ---
     const lecture = await Lecture.findOne({
       classId: ctx.wizard.state.classId,
       title: text,
     });
-    if (!lecture) return;
 
-    // 1. Capture the loading message
+    if (!lecture) return ctx.reply("⚠️ Please select a valid lecture.");
+
     const statusMsg = await ctx.reply(`⏳ Sending ${lecture.title}...`);
 
-    await timeIt(
-      `TG: Send file ${lecture.title}`,
-      ctx.telegram.sendDocument(ctx.chat.id, lecture.fileId, {
-        caption: lecture.title,
-      }),
-    );
+    try {
+      await timeIt(
+        `TG: Send file ${lecture.title}`,
+        ctx.telegram.sendDocument(ctx.chat.id, lecture.fileId, {
+          caption: lecture.title,
+        }),
+      );
+    } catch (err) {
+      console.error(err);
+      await ctx.reply("❌ Failed to send file.");
+    }
 
-    // 2. Delete the loading message once finished
     try {
       await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
     } catch (e) {}
+
+    // Notice there is no return ctx.wizard.next() here!
+    // They stay in Step 3 so they can click and download multiple lectures in a row.
   },
 );
 
@@ -201,9 +301,37 @@ const viewCreativeWizard = new Scenes.WizardScene(
   },
 );
 
+const suggestWizard = new Scenes.WizardScene(
+  "SUGGEST_SCENE",
+  async (ctx) => {
+    ctx.reply(
+      "💡 Have a suggestion to improve the bot or want to contribute? Please share your ideas here!",
+      Markup.keyboard([["🔙 Main Menu"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+
+    const suggestion = ctx.message.text;
+
+    const adminId = process.env.ADMIN_ID;
+
+    await ctx.telegram.sendMessage(
+      adminId,
+      `💡 New suggestion from ${ctx.from.first_name || ctx.from.username || ctx.from.id} (@${ctx.from.username}):\n\n${suggestion}`,
+    );
+
+    ctx.reply("✅ Thanks for your suggestion!", mainMenuKeyboard(ctx));
+    return ctx.scene.leave();
+  },
+);
+
 module.exports = {
   chooseStageWizard,
   browseClassesWizard,
   viewArchiveWizard,
   viewCreativeWizard,
+  suggestWizard,
 };

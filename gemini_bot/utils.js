@@ -36,7 +36,9 @@ const mainMenuKeyboard = (ctx) => {
 
 const adminPanelKeyboard = (ctx) => {
   const role = ctx.state.dbUser?.role;
+
   const buttons = [];
+
   if (role === "owner") {
     buttons.push(
       ["➕ Add Stage", "❌ Delete Stage"],
@@ -44,7 +46,7 @@ const adminPanelKeyboard = (ctx) => {
       ["➕ Add Lecture", "❌ Delete Lecture"],
       ["➕ Add Archive", "❌ Delete Archive"],
       ["➕ Add Creative", "❌ Delete Creative"],
-      ["📢 Broadcast Message"],
+      ["📢 Broadcast Message", "📢 Send Announcement"],
     );
   } else if (role === "admin") {
     buttons.push(

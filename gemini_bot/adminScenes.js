@@ -8,6 +8,7 @@ const {
   ArchiveFile,
   Creative,
   CreativeFile,
+  BotSettings,
 } = require("./models");
 const {
   timeIt,
@@ -920,6 +921,34 @@ const broadcastGroupWizard = new Scenes.WizardScene(
   },
 );
 
+const editWelcomeMsgWizard = new Scenes.WizardScene(
+  "EDIT_WELCOME_SCENE",
+  (ctx) => {
+    ctx.reply(
+      "✍️ Type the new welcome message for users:",
+      Markup.keyboard([["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    const newMsg = ctx.message.text;
+
+    await timeIt(
+      "DB: Update Welcome Message",
+      BotSettings.findOneAndUpdate(
+        { singletonId: "default" },
+        { welcomeMessage: newMsg },
+      ),
+    );
+
+    ctx.reply("✅ Welcome message updated for all users!", adminPanelKeyboard);
+    return ctx.scene.leave();
+  },
+);
+
 module.exports = {
   addStageWizard,
   addClassWizard,
@@ -936,4 +965,5 @@ module.exports = {
   delArchiveWizard,
   delCreativeWizard,
   promoteAdminWizard,
+  editWelcomeMsgWizard,
 };

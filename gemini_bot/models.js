@@ -5,6 +5,8 @@ const stageSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   adminId: { type: String, default: null },
   telegramGroupId: { type: String, default: null },
+  homeworkText: { type: String, default: null },
+  scheduleImageId: { type: String, default: null },
 });
 
 const classSchema = new mongoose.Schema({
@@ -26,6 +28,11 @@ const lectureSchema = new mongoose.Schema({
   fileId: { type: String, required: true },
   fileType: { type: String, required: true },
   channelMsgId: { type: Number, required: true },
+  category: {
+    type: String,
+    enum: ["theory", "lab"],
+    default: "theory",
+  },
 });
 
 const userSchema = new mongoose.Schema({
@@ -74,6 +81,19 @@ const creativeFileSchema = new mongoose.Schema({
   channelMsgId: { type: Number, required: true },
 });
 
+const botSettingsSchema = new mongoose.Schema({
+  // We force this to always be 'default' so we only ever have one settings document
+  singletonId: { type: String, default: "default", unique: true },
+  welcomeMessage: {
+    type: String,
+    default: "👋 Welcome to Al-Msar Bot!\n\nPlease choose an option below.",
+  },
+  aboutMessage: {
+    type: String,
+    default: "This bot was created to help students access their materials.",
+  },
+});
+
 module.exports = {
   Stage: mongoose.model("Stage", stageSchema),
   Class: mongoose.model("Class", classSchema),
@@ -83,4 +103,5 @@ module.exports = {
   ArchiveFile: mongoose.model("ArchiveFile", archiveFileSchema),
   Creative: mongoose.model("Creative", creativeSchema),
   CreativeFile: mongoose.model("CreativeFile", creativeFileSchema),
+  BotSettings: mongoose.model("BotSettings", botSettingsSchema),
 };

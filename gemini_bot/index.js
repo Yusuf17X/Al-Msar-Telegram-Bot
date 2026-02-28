@@ -1,8 +1,8 @@
 require("dotenv").config({ path: "./config.env" });
 const { Telegraf, Scenes, session } = require("telegraf");
 const mongoose = require("mongoose");
-const { User } = require("./models");
-const { mainMenuKeyboard, adminPanelKeyboard } = require("./utils");
+const { User, BotSettings } = require("./models");
+const { mainMenuKeyboard, adminPanelKeyboard, timeIt } = require("./utils");
 
 // Import Scenes
 const {
@@ -19,12 +19,14 @@ const {
   delCreativeWizard,
   promoteAdminWizard,
   broadcastGroupWizard,
+  editWelcomeMsgWizard,
 } = require("./adminScenes");
 const {
   chooseStageWizard,
   browseClassesWizard,
   viewArchiveWizard,
   viewCreativeWizard,
+  suggestWizard,
 } = require("./userScenes");
 
 mongoose
@@ -80,13 +82,26 @@ const stage = new Scenes.Stage([
   delCreativeWizard,
   promoteAdminWizard,
   broadcastGroupWizard,
+  suggestWizard,
+  editWelcomeMsgWizard,
 ]);
 bot.use(stage.middleware());
 
 // --- ROUTERS ---
-bot.start((ctx) =>
-  ctx.reply("Welcome to the Lecture Bot!", mainMenuKeyboard(ctx)),
-);
+bot.start(async (ctx) => {
+  // Find the settings, or create the default one if it doesn't exist yet
+  let settings = await timeIt(
+    "Fetch Bot Settings: Welcome Message",
+    BotSettings.findOne({ singletonId: "default" }),
+  );
+
+  if (!settings) {
+    settings = await BotSettings.create({});
+  }
+
+  // Send the dynamic welcome message
+  ctx.reply(settings.welcomeMessage, mainMenuKeyboard(ctx));
+});
 
 bot.command("link", async (ctx) => {
   // 1. Ensure this is inside a group chat
@@ -133,6 +148,8 @@ bot.command("link", async (ctx) => {
   }
 });
 
+bot.command("suggest", (ctx) => ctx.scene.enter("SUGGEST_SCENE"));
+
 bot.hears("🔙 Main Menu", (ctx) =>
   ctx.reply("Main Menu", mainMenuKeyboard(ctx)),
 );
@@ -151,7 +168,7 @@ bot.hears("⚙️ Admin Panel", (ctx) => {
 
   // If they are a stage admin or the super owner, let them in
   if (role === "admin" || role === "owner") {
-    ctx.reply("⚙️ Admin Dashboard", adminPanelKeyboard);
+    ctx.reply("⚙️ Admin Panel", adminPanelKeyboard(ctx));
   }
 });
 
@@ -176,8 +193,13 @@ bot.hears("❌ Delete Class", (ctx) => {
 bot.hears("❌ Delete Lecture", (ctx) => {
   if (ctx.state.dbUser?.role === "admin") ctx.scene.enter("DEL_LECTURE_SCENE");
 });
+
 bot.hears("📢 Broadcast Message", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("BROADCAST_SCENE");
+});
+bot.hears("📢 Send Announcement", (ctx) => {
+  if (ctx.state.dbUser?.role === "owner" || ctx.state.dbUser?.role === "admin")
+    ctx.scene.enter("BROADCAST_GROUP_SCENE");
 });
 
 bot.hears("📦 Archive", (ctx) => ctx.scene.enter("VIEW_ARCHIVE_SCENE"));
@@ -202,11 +224,11 @@ bot.hears("👑 Promote Admin", (ctx) => {
     ctx.scene.enter("PROMOTE_ADMIN_SCENE");
 });
 
-bot.hears("📢 Send Announcement", (ctx) => {
-  if (ctx.state.dbUser?.role === "owner" || ctx.state.dbUser?.role === "admin")
-    ctx.scene.enter("BROADCAST_GROUP_SCENE");
+bot.hears("✏️ Edit Welcome Message", (ctx) => {
+  if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("EDIT_WELCOME_SCENE");
 });
 
-bot.launch().then(() => console.log("Bot is running nicely refactored!"));
+bot.launch();
+
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
