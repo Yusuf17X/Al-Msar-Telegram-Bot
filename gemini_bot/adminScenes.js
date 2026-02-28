@@ -28,9 +28,13 @@ const addStageWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx))); // FIX: Executed the function
+
     await timeIt("DB: Create Stage", Stage.create({ name: ctx.message.text }));
-    ctx.reply(`✅ Stage "${ctx.message.text}" created!`, adminPanelKeyboard);
+    ctx.reply(
+      `✅ Stage "${ctx.message.text}" created!`,
+      adminPanelKeyboard(ctx),
+    );
     return ctx.scene.leave();
   },
 );
@@ -49,7 +53,7 @@ const addClassWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage) return ctx.reply("Select a valid stage from the keyboard.");
 
@@ -62,7 +66,7 @@ const addClassWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     await timeIt(
       "DB: Create Class",
       Class.create({
@@ -70,23 +74,26 @@ const addClassWizard = new Scenes.WizardScene(
         stageId: ctx.wizard.state.stageId,
       }),
     );
-    ctx.reply(`✅ Class created!`, adminPanelKeyboard);
+    ctx.reply(`✅ Class created!`, adminPanelKeyboard(ctx));
     return ctx.scene.leave();
   },
 );
 
 const addLectureWizard = new Scenes.WizardScene(
   "ADD_LECTURE_SCENE",
+
   // Step 0: The Routing Step
   async (ctx) => {
     const user = ctx.state.dbUser;
 
     if (user.role === "admin") {
-      // ADMIN FLOW: Skip stage selection
       const stage = await Stage.findById(user.managedStageId);
       if (!stage)
         return ctx.scene.leave(
-          ctx.reply("❌ Error: No stage assigned to you.", adminPanelKeyboard),
+          ctx.reply(
+            "❌ Error: No stage assigned to you.",
+            adminPanelKeyboard(ctx),
+          ),
         );
 
       ctx.wizard.state.stageId = stage._id;
@@ -100,11 +107,9 @@ const addLectureWizard = new Scenes.WizardScene(
         ]).resize(),
       );
 
-      // Jump directly to Step 2 (skipping Step 1)
       ctx.wizard.selectStep(2);
       return;
     } else {
-      // OWNER FLOW: Ask for the Stage
       const stages = await Stage.find();
       ctx.reply(
         "Select the Stage:",
@@ -113,13 +118,14 @@ const addLectureWizard = new Scenes.WizardScene(
           ["❌ Cancel"],
         ]).resize(),
       );
-      return ctx.wizard.next(); // Go to Step 1 normally
+      return ctx.wizard.next();
     }
   },
+
   // Step 1: Owner Only - Process Stage Selection
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage) return ctx.reply("⚠️ Please select a valid stage.");
@@ -134,64 +140,66 @@ const addLectureWizard = new Scenes.WizardScene(
         ["❌ Cancel"],
       ]).resize(),
     );
-    return ctx.wizard.next(); // Go to Step 2
+    return ctx.wizard.next();
   },
+
   // Step 2: Both Admin and Owner end up here to select the Class
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
-    // Notice we check by stageId to ensure they don't type a class from another stage
     const selectedClass = await Class.findOne({
       name: ctx.message.text,
       stageId: ctx.wizard.state.stageId,
     });
+
     if (!selectedClass)
       return ctx.reply("⚠️ Please select a valid class from the keyboard.");
 
     ctx.wizard.state.classId = selectedClass._id;
-    ctx.wizard.state.files = [];
 
+    // Ask for the Category instead of immediately asking for files!
     ctx.reply(
-      "📎 Send your lecture files (PDF/PPTX). Click '✅ Done' when finished.",
-      Markup.keyboard([["✅ Done"], ["❌ Cancel"]]).resize(),
+      "Is this a Theory or Lab lecture?",
+      Markup.keyboard([["Theory", "Lab"], ["❌ Cancel"]]).resize(),
     );
-    return ctx.wizard.next(); // Go to Step 3 (The file queue loop you already wrote)
+    return ctx.wizard.next();
   },
-  // Step 3: Initialize File Queue
+
+  //Step 3: Handle Category Selection & Initialize File Queue
   async (ctx) => {
-    if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+    const text = ctx.message?.text;
+    if (isCancel(text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
-    const selectedClass = await Class.findOne({ name: ctx.message.text });
-    if (!selectedClass)
-      return ctx.reply("⚠️ Please select a valid class from the keyboard.");
+    if (text !== "Theory" && text !== "Lab") {
+      return ctx.reply("⚠️ Please select 'Theory' or 'Lab' from the keyboard.");
+    }
 
-    ctx.wizard.state.classId = selectedClass._id;
+    // Save the category (make it lowercase to match your browseClasses logic)
+    ctx.wizard.state.category = text.toLowerCase();
     ctx.wizard.state.files = [];
 
     ctx.reply(
-      "📎 Send your lecture files (PDF/PPTX). You can send multiple!\n\nClick '✅ Done' when you are finished.",
+      `📎 Send your **${text}** lecture files (PDF/PPTX). Click '✅ Done' when finished.`,
       Markup.keyboard([["✅ Done"], ["❌ Cancel"]]).resize(),
     );
     return ctx.wizard.next();
   },
-  // Step 4: Process File Queue
+
+  // Step 4: Handle File Queue and Saving (Formerly Step 3)
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
-    // 1. If the user sends a document, add to queue and confirm
     if (ctx.message?.document) {
       ctx.wizard.state.files.push(ctx.message);
       const fileName = ctx.message.document.file_name || "Unknown File";
-      // Brief reply so you know it didn't freeze
       ctx.reply(`📥 Added to queue: ${fileName}`);
       return;
     }
 
-    // 2. If the user clicks "Done", process the queue
     if (text === "✅ Done") {
       if (ctx.wizard.state.files.length === 0) {
         return ctx.reply(
@@ -199,13 +207,11 @@ const addLectureWizard = new Scenes.WizardScene(
         );
       }
 
-      // Correctly remove keyboard without crashing
       ctx.reply(
         `⏳ Processing ${ctx.wizard.state.files.length} files... Please wait.`,
         Markup.removeKeyboard(),
       );
 
-      // Sort by message_id to guarantee the exact chronological order
       const sortedFiles = ctx.wizard.state.files.sort(
         (a, b) => a.message_id - b.message_id,
       );
@@ -236,6 +242,7 @@ const addLectureWizard = new Scenes.WizardScene(
                 ? "pdf"
                 : "pptx",
               channelMsgId: channelMsg.message_id,
+              category: ctx.wizard.state.category, // <--- NEW: Saves 'theory' or 'lab' to DB
             }),
           );
           ctx.reply(`✅ Saved: ${title}`);
@@ -244,30 +251,26 @@ const addLectureWizard = new Scenes.WizardScene(
           ctx.reply(`❌ Error saving: ${fileName}`);
         }
       }
-      ctx.reply("✅ All uploads finished.", adminPanelKeyboard);
+      ctx.reply("✅ All uploads finished.", adminPanelKeyboard(ctx));
 
       try {
         const stage = await Stage.findById(ctx.wizard.state.stageId);
         const classObj = await Class.findById(ctx.wizard.state.classId);
 
-        // Check if this stage actually has a linked Telegram group
         if (stage && stage.telegramGroupId) {
-          const message = `📢 **New Study Material Added!**\n\n📚 **Class:** ${classObj.name}\n📎 **Files Uploaded:** ${ctx.wizard.state.files.length}\n\n👉 Open the bot to download!`;
+          // Changed message slightly to show if it's Lab or Theory
+          const catText = ctx.wizard.state.category === "lab" ? "Lab " : "";
+          const message = `📢 **New Study Material Added!**\n\n📚 **Class:** ${classObj.name}\n🔬 **Type:** ${catText}Lecture\n📎 **Files Uploaded:** ${ctx.wizard.state.files.length}\n\n👉 Open the bot to download!`;
 
           await ctx.telegram.sendMessage(stage.telegramGroupId, message);
         }
       } catch (error) {
-        console.log(
-          "Group notification failed (Bot might have been kicked):",
-          error,
-        );
-        // We catch the error silently so it doesn't crash the bot if the group is deleted
+        console.log("Group notification failed:", error.message);
       }
 
       return ctx.scene.leave();
     }
 
-    // 3. Catch-all for invalid inputs (like sending a photo or sticker by accident)
     ctx.reply("⚠️ Please send a PDF/PPTX document, or click '✅ Done'.");
   },
 );
@@ -280,7 +283,7 @@ const delStageWizard = new Scenes.WizardScene(
     const stages = await timeIt("DB: Fetch Stages", Stage.find());
     if (stages.length === 0)
       return ctx.scene.leave(
-        ctx.reply("No stages to delete.", adminPanelKeyboard),
+        ctx.reply("No stages to delete.", adminPanelKeyboard(ctx)),
       );
 
     ctx.reply(
@@ -291,13 +294,12 @@ const delStageWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage) return ctx.reply("Select a valid stage.");
 
     ctx.reply("⏳ Deleting stage and cleaning up files...");
 
-    // Cascade delete: find all classes in this stage
     const classes = await Class.find({ stageId: stage._id });
     for (const c of classes) {
       const lectures = await Lecture.find({ classId: c._id });
@@ -307,16 +309,18 @@ const delStageWizard = new Scenes.WizardScene(
             process.env.CHANNEL_ID,
             l.channelMsgId,
           );
-        } catch (e) {} // Delete from channel
+        } catch (e) {
+          console.log(`Failed to delete msg ${l.channelMsgId} from channel.`); // FIX: Added logging
+        }
       }
-      await Lecture.deleteMany({ classId: c._id }); // Delete lectures from DB
+      await Lecture.deleteMany({ classId: c._id });
     }
-    await Class.deleteMany({ stageId: stage._id }); // Delete classes from DB
-    await Stage.findByIdAndDelete(stage._id); // Delete stage from DB
+    await Class.deleteMany({ stageId: stage._id });
+    await Stage.findByIdAndDelete(stage._id);
 
     ctx.reply(
       `✅ Stage "${stage.name}" and all its contents completely deleted.`,
-      adminPanelKeyboard,
+      adminPanelKeyboard(ctx),
     );
     return ctx.scene.leave();
   },
@@ -334,7 +338,7 @@ const delClassWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage) return;
 
@@ -343,7 +347,9 @@ const delClassWizard = new Scenes.WizardScene(
       Class.find({ stageId: stage._id }),
     );
     if (classes.length === 0)
-      return ctx.scene.leave(ctx.reply("No classes here.", adminPanelKeyboard));
+      return ctx.scene.leave(
+        ctx.reply("No classes here.", adminPanelKeyboard(ctx)),
+      );
 
     ctx.reply(
       "⚠️ Select the Class to PERMANENTLY delete (removes all its lectures):",
@@ -356,7 +362,7 @@ const delClassWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const selectedClass = await Class.findOne({ name: ctx.message.text });
     if (!selectedClass) return;
 
@@ -369,14 +375,16 @@ const delClassWizard = new Scenes.WizardScene(
           process.env.CHANNEL_ID,
           l.channelMsgId,
         );
-      } catch (e) {}
+      } catch (e) {
+        console.log(`Failed to delete msg ${l.channelMsgId} from channel.`);
+      }
     }
     await Lecture.deleteMany({ classId: selectedClass._id });
     await Class.findByIdAndDelete(selectedClass._id);
 
     ctx.reply(
       `✅ Class "${selectedClass.name}" and all its files deleted.`,
-      adminPanelKeyboard,
+      adminPanelKeyboard(ctx),
     );
     return ctx.scene.leave();
   },
@@ -394,7 +402,7 @@ const delLectureWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage) return;
 
@@ -413,7 +421,7 @@ const delLectureWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const selectedClass = await Class.findOne({ name: ctx.message.text });
     if (!selectedClass) return;
 
@@ -423,7 +431,7 @@ const delLectureWizard = new Scenes.WizardScene(
     );
     if (lectures.length === 0)
       return ctx.scene.leave(
-        ctx.reply("No lectures here.", adminPanelKeyboard),
+        ctx.reply("No lectures here.", adminPanelKeyboard(ctx)),
       );
 
     ctx.reply(
@@ -437,7 +445,7 @@ const delLectureWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const lecture = await Lecture.findOne({ title: ctx.message.text });
     if (!lecture) return;
 
@@ -446,10 +454,12 @@ const delLectureWizard = new Scenes.WizardScene(
         process.env.CHANNEL_ID,
         lecture.channelMsgId,
       );
-    } catch (e) {}
+    } catch (e) {
+      console.log(`Failed to delete msg ${lecture.channelMsgId} from channel.`);
+    }
     await Lecture.findByIdAndDelete(lecture._id);
 
-    ctx.reply(`✅ Lecture deleted.`, adminPanelKeyboard);
+    ctx.reply(`✅ Lecture deleted.`, adminPanelKeyboard(ctx));
     return ctx.scene.leave();
   },
 );
@@ -468,7 +478,7 @@ const broadcastWizard = new Scenes.WizardScene(
   async (ctx) => {
     if (isCancel(ctx.message?.text))
       return ctx.scene.leave(
-        ctx.reply("Broadcast cancelled.", adminPanelKeyboard),
+        ctx.reply("Broadcast cancelled.", adminPanelKeyboard(ctx)),
       );
 
     const users = await User.find();
@@ -483,12 +493,12 @@ const broadcastWizard = new Scenes.WizardScene(
         );
         sent++;
       } catch (err) {
-        // User might have blocked the bot
+        // User blocked bot
       }
     }
     ctx.reply(
       `✅ Broadcast finished. Reached ${sent}/${users.length} users.`,
-      adminPanelKeyboard,
+      adminPanelKeyboard(ctx),
     );
     return ctx.scene.leave();
   },
@@ -506,7 +516,7 @@ const addArchiveWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     try {
       const archive = await timeIt(
@@ -530,7 +540,7 @@ const addArchiveWizard = new Scenes.WizardScene(
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     if (ctx.message?.document || ctx.message?.photo || ctx.message?.video) {
       ctx.wizard.state.files.push(ctx.message);
@@ -542,7 +552,6 @@ const addArchiveWizard = new Scenes.WizardScene(
       if (ctx.wizard.state.files.length === 0)
         return ctx.reply("⚠️ Send files first!");
 
-      // 1. Capture the loading message
       const statusMsg = await ctx.reply(
         `⏳ Saving ${ctx.wizard.state.files.length} archive files...`,
         Markup.removeKeyboard(),
@@ -553,14 +562,38 @@ const addArchiveWizard = new Scenes.WizardScene(
       );
 
       for (const msg of sortedFiles) {
-        // ... your existing upload and database save logic ...
+        let fileId, title;
+        if (msg.document) {
+          fileId = msg.document.file_id;
+          title = msg.document.file_name || "Document";
+        } else if (msg.photo) {
+          fileId = msg.photo[msg.photo.length - 1].file_id;
+          title = "Photo";
+        } else if (msg.video) {
+          fileId = msg.video.file_id;
+          title = "Video";
+        }
+
+        try {
+          const channelMsg = await ctx.telegram.sendCopy(
+            process.env.CHANNEL_ID,
+            msg,
+          );
+          await ArchiveFile.create({
+            archiveId: ctx.wizard.state.archiveId,
+            fileId: fileId,
+            title: title,
+            channelMsgId: channelMsg.message_id,
+          });
+        } catch (error) {
+          console.error("Archive Save Error", error);
+        }
       }
 
-      // 2. Delete the loading message and send the final confirmation
       try {
         await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
       } catch (e) {}
-      ctx.reply("✅ Archive upload finished.", adminPanelKeyboard);
+      ctx.reply("✅ Archive upload finished.", adminPanelKeyboard(ctx));
 
       return ctx.scene.leave();
     }
@@ -580,7 +613,7 @@ const addCreativeWizard = new Scenes.WizardScene(
   },
   (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     ctx.wizard.state.creativeName = ctx.message.text;
 
     ctx.reply("✍️ Now, send the text message/description for this topic:");
@@ -588,15 +621,13 @@ const addCreativeWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     try {
-      // 1. Send text to channel
       const channelMsg = await ctx.telegram.sendMessage(
         process.env.CHANNEL_ID,
         `🎨 **${ctx.wizard.state.creativeName}**\n\n${ctx.message.text}`,
       );
-      // 2. Save to DB
       const creative = await timeIt(
         "DB: Create Creative",
         Creative.create({
@@ -621,7 +652,7 @@ const addCreativeWizard = new Scenes.WizardScene(
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     if (ctx.message?.document || ctx.message?.photo || ctx.message?.video) {
       ctx.wizard.state.files.push(ctx.message);
@@ -664,7 +695,7 @@ const addCreativeWizard = new Scenes.WizardScene(
           });
         } catch (error) {}
       }
-      ctx.reply("✅ Creative topic fully saved.", adminPanelKeyboard);
+      ctx.reply("✅ Creative topic fully saved.", adminPanelKeyboard(ctx));
       return ctx.scene.leave();
     }
     ctx.reply("⚠️ Please send a file or click '✅ Done'.");
@@ -678,7 +709,7 @@ const delArchiveWizard = new Scenes.WizardScene(
     const archives = await timeIt("DB: Fetch Archives", Archive.find());
     if (archives.length === 0)
       return ctx.scene.leave(
-        ctx.reply("No archives to delete.", adminPanelKeyboard),
+        ctx.reply("No archives to delete.", adminPanelKeyboard(ctx)),
       );
 
     ctx.reply(
@@ -692,11 +723,10 @@ const delArchiveWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const archive = await Archive.findOne({ name: ctx.message.text });
     if (!archive) return ctx.reply("Select a valid archive.");
 
-    // 1. Capture the loading message
     const statusMsg = await ctx.reply(
       "⏳ Deleting archive and cleaning up files...",
     );
@@ -713,13 +743,12 @@ const delArchiveWizard = new Scenes.WizardScene(
     await ArchiveFile.deleteMany({ archiveId: archive._id });
     await Archive.findByIdAndDelete(archive._id);
 
-    // 2. Delete the loading message and send the final confirmation
     try {
       await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
     } catch (e) {}
     ctx.reply(
       `✅ Archive "${archive.name}" and all its files deleted.`,
-      adminPanelKeyboard,
+      adminPanelKeyboard(ctx),
     );
 
     return ctx.scene.leave();
@@ -733,7 +762,7 @@ const delCreativeWizard = new Scenes.WizardScene(
     const creatives = await timeIt("DB: Fetch Creatives", Creative.find());
     if (creatives.length === 0)
       return ctx.scene.leave(
-        ctx.reply("No creative topics to delete.", adminPanelKeyboard),
+        ctx.reply("No creative topics to delete.", adminPanelKeyboard(ctx)),
       );
 
     ctx.reply(
@@ -747,13 +776,12 @@ const delCreativeWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
     const creative = await Creative.findOne({ name: ctx.message.text });
     if (!creative) return ctx.reply("Select a valid creative topic.");
 
     ctx.reply("⏳ Deleting creative topic and cleaning up files...");
 
-    // 1. Delete the main text message from the channel
     try {
       await ctx.telegram.deleteMessage(
         process.env.CHANNEL_ID,
@@ -761,7 +789,6 @@ const delCreativeWizard = new Scenes.WizardScene(
       );
     } catch (e) {}
 
-    // 2. Cascade delete all attached files from channel and DB
     const files = await CreativeFile.find({ creativeId: creative._id });
     for (const f of files) {
       try {
@@ -776,7 +803,7 @@ const delCreativeWizard = new Scenes.WizardScene(
 
     ctx.reply(
       `✅ Creative topic "${creative.name}" and all its files deleted.`,
-      adminPanelKeyboard,
+      adminPanelKeyboard(ctx),
     );
     return ctx.scene.leave();
   },
@@ -784,7 +811,6 @@ const delCreativeWizard = new Scenes.WizardScene(
 
 const promoteAdminWizard = new Scenes.WizardScene(
   "PROMOTE_ADMIN_SCENE",
-  // Step 0: Ask for User ID
   (ctx) => {
     ctx.reply(
       "👑 **Promote Stage Admin**\n\nPlease send the Telegram Chat ID of the user you want to promote.\n*(They can get their ID by messaging @userinfobot)*",
@@ -792,10 +818,9 @@ const promoteAdminWizard = new Scenes.WizardScene(
     );
     return ctx.wizard.next();
   },
-  // Step 1: Verify User & Ask for Stage
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     const targetUserId = parseInt(ctx.message.text);
     if (isNaN(targetUserId))
@@ -807,7 +832,7 @@ const promoteAdminWizard = new Scenes.WizardScene(
         "❌ User not found in database. They must start the bot first.",
       );
 
-    ctx.wizard.state.targetUserId = targetUser._id;
+    ctx.wizard.state.targetUserId = targetUser._id; // FIX: Saved state properly
 
     const stages = await Stage.find();
     ctx.reply(
@@ -816,15 +841,13 @@ const promoteAdminWizard = new Scenes.WizardScene(
     );
     return ctx.wizard.next();
   },
-  // Step 2: Save the Role
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage) return ctx.reply("⚠️ Please select a valid stage.");
 
-    // Update the user's role and assigned stage
     await User.findByIdAndUpdate(ctx.wizard.state.targetUserId, {
       role: "admin",
       managedStageId: stage._id,
@@ -832,7 +855,7 @@ const promoteAdminWizard = new Scenes.WizardScene(
 
     ctx.reply(
       `🎉 Success! User has been promoted to Admin for **${stage.name}**.\n\nTell them to type /start to refresh their menu.`,
-      adminPanelKeyboard,
+      adminPanelKeyboard(ctx),
     );
     return ctx.scene.leave();
   },
@@ -840,7 +863,6 @@ const promoteAdminWizard = new Scenes.WizardScene(
 
 const broadcastGroupWizard = new Scenes.WizardScene(
   "BROADCAST_GROUP_SCENE",
-  // Step 0: Routing (Admin vs Owner)
   async (ctx) => {
     const user = ctx.state.dbUser;
 
@@ -850,7 +872,7 @@ const broadcastGroupWizard = new Scenes.WizardScene(
         return ctx.scene.leave(
           ctx.reply(
             "❌ Error: Your stage doesn't have a linked group yet. Add the bot to your group and type /link.",
-            adminPanelKeyboard,
+            adminPanelKeyboard(ctx),
           ),
         );
       }
@@ -861,14 +883,16 @@ const broadcastGroupWizard = new Scenes.WizardScene(
         Markup.keyboard([["❌ Cancel"]]).resize(),
       );
 
-      ctx.wizard.selectStep(2); // Skip Step 1
+      ctx.wizard.selectStep(2);
       return;
     } else {
-      // Owner Flow: Ask which stage to broadcast to
-      const stages = await Stage.find({ telegramGroupId: { $ne: null } }); // Only fetch stages with linked groups
+      const stages = await Stage.find({ telegramGroupId: { $ne: null } });
       if (stages.length === 0)
         return ctx.scene.leave(
-          ctx.reply("❌ No stages have linked groups yet.", adminPanelKeyboard),
+          ctx.reply(
+            "❌ No stages have linked groups yet.",
+            adminPanelKeyboard(ctx),
+          ),
         );
 
       ctx.reply(
@@ -881,10 +905,9 @@ const broadcastGroupWizard = new Scenes.WizardScene(
       return ctx.wizard.next();
     }
   },
-  // Step 1: Owner Only - Save the target group ID
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     const stage = await Stage.findOne({ name: ctx.message.text });
     if (!stage || !stage.telegramGroupId)
@@ -897,10 +920,9 @@ const broadcastGroupWizard = new Scenes.WizardScene(
     );
     return ctx.wizard.next();
   },
-  // Step 2: Both Admin & Owner end up here to send the message
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     const announcementText = ctx.message.text;
 
@@ -909,11 +931,11 @@ const broadcastGroupWizard = new Scenes.WizardScene(
         ctx.wizard.state.targetGroupId,
         `📢 **Admin Announcement**\n\n${announcementText}`,
       );
-      ctx.reply("✅ Announcement sent successfully!", adminPanelKeyboard);
+      ctx.reply("✅ Announcement sent successfully!", adminPanelKeyboard(ctx));
     } catch (error) {
       ctx.reply(
         "❌ Failed to send. Make sure the bot is still an admin in that group.",
-        adminPanelKeyboard,
+        adminPanelKeyboard(ctx),
       );
     }
 
@@ -932,7 +954,7 @@ const editWelcomeMsgWizard = new Scenes.WizardScene(
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard(ctx)));
 
     const newMsg = ctx.message.text;
 
@@ -944,7 +966,158 @@ const editWelcomeMsgWizard = new Scenes.WizardScene(
       ),
     );
 
-    ctx.reply("✅ Welcome message updated for all users!", adminPanelKeyboard);
+    ctx.reply(
+      "✅ Welcome message updated for all users!",
+      adminPanelKeyboard(ctx),
+    );
+    return ctx.scene.leave();
+  },
+);
+
+// --- EDIT HOMEWORK SCENE ---
+const editHomeworkWizard = new Scenes.WizardScene(
+  "EDIT_HOMEWORK_SCENE",
+  // STEP 1: Route based on Role
+  async (ctx) => {
+    const user = ctx.state.dbUser;
+    if (user.role === "admin") {
+      if (!user.managedStageId) {
+        await ctx.reply("❌ You are not assigned to manage any stage.");
+        return ctx.scene.leave();
+      }
+      ctx.wizard.state.stageId = user.managedStageId;
+      await ctx.reply("📝 Please send the new Homework text for your stage:");
+      return ctx.wizard.selectStep(2); // Skip Step 2 and go straight to Step 3
+    }
+
+    // If Owner: Ask which stage to edit
+    const stages = await Stage.find();
+    await ctx.reply(
+      "🎓 Select the Stage to update homework for:",
+      Markup.keyboard([...stages.map((s) => [s.name]), ["🔙 Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  // STEP 2: Handle Owner's Stage Selection
+  async (ctx) => {
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Cancelled.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
+    const stage = await Stage.findOne({ name: ctx.message.text });
+    if (!stage) return ctx.reply("⚠️ Please select a valid stage.");
+
+    ctx.wizard.state.stageId = stage._id;
+    await ctx.reply(
+      `📝 Please send the new Homework text for **${stage.name}**:`,
+    );
+    return ctx.wizard.next();
+  },
+  // STEP 3: Receive and Save the Homework Text
+  async (ctx) => {
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Cancelled.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
+
+    const newHomework = ctx.message.text;
+    await Stage.findByIdAndUpdate(ctx.wizard.state.stageId, {
+      homeworkText: newHomework,
+    });
+
+    await ctx.reply("✅ Homework updated successfully!", mainMenuKeyboard(ctx));
+    return ctx.scene.leave();
+  },
+);
+
+// --- EDIT SCHEDULE SCENE ---
+const editScheduleWizard = new Scenes.WizardScene(
+  "EDIT_SCHEDULE_SCENE",
+  // STEP 1: Route based on Role
+  async (ctx) => {
+    const user = ctx.state.dbUser;
+    if (user.role === "admin") {
+      if (!user.managedStageId) {
+        await ctx.reply("❌ You are not assigned to manage any stage.");
+        return ctx.scene.leave();
+      }
+      ctx.wizard.state.stageId = user.managedStageId;
+      await ctx.reply(
+        "📅 Please upload the new Schedule **Image** for your stage:",
+      );
+      return ctx.wizard.selectStep(2);
+    }
+
+    // If Owner
+    const stages = await Stage.find();
+    await ctx.reply(
+      "🎓 Select the Stage to update the schedule for:",
+      Markup.keyboard([...stages.map((s) => [s.name]), ["🔙 Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  // STEP 2: Handle Owner's Stage Selection
+  async (ctx) => {
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Cancelled.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
+    const stage = await Stage.findOne({ name: ctx.message.text });
+    if (!stage) return ctx.reply("⚠️ Please select a valid stage.");
+
+    ctx.wizard.state.stageId = stage._id;
+    await ctx.reply(
+      `📅 Please upload the new Schedule **Image** for **${stage.name}**:`,
+    );
+    return ctx.wizard.next();
+  },
+  // STEP 3: Receive Image and Save
+  async (ctx) => {
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Cancelled.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
+
+    if (!ctx.message?.photo) {
+      return ctx.reply(
+        "⚠️ Please upload an image (photo), not a document or text.",
+      );
+    }
+
+    // Grab the highest resolution photo from the Admin's message
+    const photoArray = ctx.message.photo;
+    const bestPhoto = photoArray[photoArray.length - 1];
+
+    // 1. FORWARD TO YOUR PRIVATE CHANNEL FOR PERMANENT SAFEKEEPING
+    let permanentImageId;
+    try {
+      const channelMsg = await ctx.telegram.sendPhoto(
+        process.env.CHANNEL_ID,
+        bestPhoto.file_id,
+        {
+          caption: `📅 Schedule Backup (Stage ID: ${ctx.wizard.state.stageId})`,
+        },
+      );
+      // Grab the new, safe file_id from the channel message
+      const channelPhotoArray = channelMsg.photo;
+      permanentImageId =
+        channelPhotoArray[channelPhotoArray.length - 1].file_id;
+    } catch (error) {
+      console.error("Failed to backup schedule to channel:", error);
+      // Fallback to the original ID if the channel upload fails
+      permanentImageId = bestPhoto.file_id;
+    }
+
+    // 2. SAVE THE SAFE ID TO THE DATABASE
+    const stage = await Stage.findByIdAndUpdate(ctx.wizard.state.stageId, {
+      scheduleImageId: permanentImageId,
+    });
+
+    await ctx.reply(
+      "✅ Schedule image saved and securely backed up!",
+      mainMenuKeyboard(ctx),
+    );
+
     return ctx.scene.leave();
   },
 );
@@ -962,8 +1135,8 @@ module.exports = {
   delCreativeWizard,
   broadcastWizard,
   broadcastGroupWizard,
-  delArchiveWizard,
-  delCreativeWizard,
   promoteAdminWizard,
   editWelcomeMsgWizard,
+  editHomeworkWizard,
+  editScheduleWizard,
 };

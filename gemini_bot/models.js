@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
 
-// Inside models.js
 const stageSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
-  adminId: { type: String, default: null },
+  adminId: { type: Number, default: null },
   telegramGroupId: { type: String, default: null },
   homeworkText: { type: String, default: null },
   scheduleImageId: { type: String, default: null },
@@ -17,6 +16,8 @@ const classSchema = new mongoose.Schema({
     required: true,
   },
 });
+// --- NEW: Prevent duplicate class names in the SAME stage ---
+classSchema.index({ name: 1, stageId: 1 }, { unique: true });
 
 const lectureSchema = new mongoose.Schema({
   title: { type: String, required: true },
@@ -37,8 +38,13 @@ const lectureSchema = new mongoose.Schema({
 
 const userSchema = new mongoose.Schema({
   chatId: { type: Number, required: true, unique: true },
+  name: { type: String },
   username: { type: String },
-  // --- NEW RBAC FIELDS ---
+  stageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Stage",
+    default: null,
+  },
   role: {
     type: String,
     enum: ["user", "admin", "owner"],
@@ -47,7 +53,7 @@ const userSchema = new mongoose.Schema({
   managedStageId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Stage",
-    default: null, // Only used if role === 'admin'
+    default: null,
   },
 });
 
@@ -68,7 +74,7 @@ const archiveFileSchema = new mongoose.Schema({
 const creativeSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   text: { type: String, required: true },
-  channelMsgId: { type: Number, required: true }, // To store the text message in the channel
+  channelMsgId: { type: Number, required: true },
 });
 const creativeFileSchema = new mongoose.Schema({
   creativeId: {
@@ -82,7 +88,6 @@ const creativeFileSchema = new mongoose.Schema({
 });
 
 const botSettingsSchema = new mongoose.Schema({
-  // We force this to always be 'default' so we only ever have one settings document
   singletonId: { type: String, default: "default", unique: true },
   welcomeMessage: {
     type: String,

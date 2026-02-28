@@ -25,10 +25,13 @@ const chooseStageWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
     const stage = await Stage.findOne({ name: ctx.message.text });
-    if (!stage) return ctx.reply("Select a valid stage.");
+    if (!stage)
+      return ctx.reply("⚠️ Please select a valid stage from the keyboard.");
 
     await timeIt(
       "DB: Update User Stage",
@@ -48,11 +51,25 @@ const browseClassesWizard = new Scenes.WizardScene(
   // STEP 1: Show Classes + Optional Homework/Schedule Buttons
   async (ctx) => {
     const user = await User.findOne({ chatId: ctx.chat.id.toString() });
-    if (!user || !user.stageId)
-      return ctx.scene.leave(ctx.reply("⚠️ You haven't selected a stage yet."));
+    if (!user || !user.stageId) {
+      await ctx.reply(
+        "⚠️ You haven't selected a stage yet.",
+        mainMenuKeyboard(ctx),
+      );
+      return ctx.scene.leave();
+    }
 
     // Fetch the Stage to check for Homework/Schedule
     const stage = await Stage.findById(user.stageId);
+
+    if (!stage) {
+      await ctx.reply(
+        "⚠️ Your selected stage was not found. Please choose again.",
+        mainMenuKeyboard(ctx),
+      );
+      return ctx.scene.leave();
+    }
+
     ctx.wizard.state.stage = stage; // Save for the next step
 
     const classes = await timeIt(
@@ -83,8 +100,10 @@ const browseClassesWizard = new Scenes.WizardScene(
   // STEP 2: Handle Class Click OR Homework/Schedule Clicks
   async (ctx) => {
     const text = ctx.message?.text;
-    if (isCancel(text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+    if (isCancel(text)) {
+      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     const stage = ctx.wizard.state.stage;
 
@@ -105,7 +124,8 @@ const browseClassesWizard = new Scenes.WizardScene(
       name: text,
       stageId: stage._id,
     });
-    if (!selectedClass) return ctx.reply("⚠️ Please select a valid option.");
+    if (!selectedClass)
+      return ctx.reply("⚠️ Please select a valid option from the keyboard.");
 
     ctx.wizard.state.classId = selectedClass._id;
 
@@ -141,8 +161,10 @@ const browseClassesWizard = new Scenes.WizardScene(
   // STEP 3: Handle Lecture Download OR Lab Folder Navigation
   async (ctx) => {
     const text = ctx.message?.text;
-    if (isCancel(text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+    if (isCancel(text)) {
+      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     if (text === "🔙 Back to Classes")
       return ctx.scene.enter("BROWSE_CLASSES_SCENE");
@@ -204,8 +226,7 @@ const browseClassesWizard = new Scenes.WizardScene(
       await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
     } catch (e) {}
 
-    // Notice there is no return ctx.wizard.next() here!
-    // They stay in Step 3 so they can click and download multiple lectures in a row.
+    // No exit here so they can click and download multiple lectures in a row!
   },
 );
 
@@ -214,10 +235,10 @@ const viewArchiveWizard = new Scenes.WizardScene(
   "VIEW_ARCHIVE_SCENE",
   async (ctx) => {
     const archives = await timeIt("DB: Fetch Archives", Archive.find());
-    if (archives.length === 0)
-      return ctx.scene.leave(
-        ctx.reply("No archives available.", mainMenuKeyboard(ctx)),
-      );
+    if (archives.length === 0) {
+      await ctx.reply("No archives available.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     ctx.reply(
       "📦 Select an Archive:",
@@ -229,14 +250,19 @@ const viewArchiveWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     const archive = await Archive.findOne({ name: ctx.message.text });
-    if (!archive) return;
+    if (!archive) return ctx.reply("⚠️ Please select a valid archive."); // FIX: Added reply
 
     const files = await ArchiveFile.find({ archiveId: archive._id });
-    if (files.length === 0) return ctx.reply("This archive is empty.");
+    if (files.length === 0) {
+      await ctx.reply("⚠️ This archive is empty.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave(); // FIX: Exit scene if empty
+    }
 
     ctx.reply(`⏳ Sending ${files.length} files from ${archive.name}...`);
     for (const file of files) {
@@ -244,8 +270,11 @@ const viewArchiveWizard = new Scenes.WizardScene(
         await ctx.telegram.sendDocument(ctx.chat.id, file.fileId);
       } catch (e) {
         await ctx.telegram.sendPhoto(ctx.chat.id, file.fileId).catch(() => {});
-      } // Fallback if it's an image
+      }
     }
+
+    await ctx.reply("✅ All files sent.", mainMenuKeyboard(ctx));
+    return ctx.scene.leave(); // FIX: Exit scene so user doesn't get trapped
   },
 );
 
@@ -254,10 +283,10 @@ const viewCreativeWizard = new Scenes.WizardScene(
   "VIEW_CREATIVE_SCENE",
   async (ctx) => {
     const creatives = await timeIt("DB: Fetch Creatives", Creative.find());
-    if (creatives.length === 0)
-      return ctx.scene.leave(
-        ctx.reply("No creative topics available.", mainMenuKeyboard(ctx)),
-      );
+    if (creatives.length === 0) {
+      await ctx.reply("No creative topics available.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     ctx.reply(
       "🎨 Select a Creative topic:",
@@ -269,11 +298,13 @@ const viewCreativeWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     const creative = await Creative.findOne({ name: ctx.message.text });
-    if (!creative) return;
+    if (!creative) return ctx.reply("⚠️ Please select a valid creative topic."); // FIX: Added reply
 
     // Send the text message first (we keep this one permanently)
     await ctx.reply(`🎨 **${creative.name}**\n\n${creative.text}`);
@@ -298,6 +329,9 @@ const viewCreativeWizard = new Scenes.WizardScene(
         await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
       } catch (e) {}
     }
+
+    await ctx.reply("✅ Finished.", mainMenuKeyboard(ctx));
+    return ctx.scene.leave(); // FIX: Exit scene so user doesn't get trapped
   },
 );
 
@@ -311,8 +345,10 @@ const suggestWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
   async (ctx) => {
-    if (isCancel(ctx.message?.text))
-      return ctx.scene.leave(ctx.reply("Main Menu", mainMenuKeyboard(ctx)));
+    if (isCancel(ctx.message?.text)) {
+      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
+    }
 
     const suggestion = ctx.message.text;
 

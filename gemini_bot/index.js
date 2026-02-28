@@ -1,7 +1,8 @@
 require("dotenv").config({ path: "./config.env" });
 const { Telegraf, Scenes, session } = require("telegraf");
 const mongoose = require("mongoose");
-const { User, BotSettings } = require("./models");
+// FIX: Added Stage to the imports!
+const { User, BotSettings, Stage } = require("./models");
 const { mainMenuKeyboard, adminPanelKeyboard, timeIt } = require("./utils");
 
 // Import Scenes
@@ -20,6 +21,8 @@ const {
   promoteAdminWizard,
   broadcastGroupWizard,
   editWelcomeMsgWizard,
+  editHomeworkWizard,
+  editScheduleWizard,
 } = require("./adminScenes");
 const {
   chooseStageWizard,
@@ -38,8 +41,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.use(session());
 
-// Ensure User is tracked
-// Inside index.js
+// Global User Middleware
 bot.use(async (ctx, next) => {
   // We only care about saving users who interact directly with the bot
   if (!ctx.from) return next();
@@ -53,6 +55,7 @@ bot.use(async (ctx, next) => {
 
     user = await User.create({
       chatId: ctx.from.id,
+      name: ctx.from.first_name,
       username: ctx.from.username,
       role: userRole,
     });
@@ -84,54 +87,59 @@ const stage = new Scenes.Stage([
   broadcastGroupWizard,
   suggestWizard,
   editWelcomeMsgWizard,
+  editHomeworkWizard,
+  editScheduleWizard,
 ]);
 bot.use(stage.middleware());
 
 // --- ROUTERS ---
 bot.start(async (ctx) => {
-  // Find the settings, or create the default one if it doesn't exist yet
   let settings = await timeIt(
     "Fetch Bot Settings: Welcome Message",
     BotSettings.findOne({ singletonId: "default" }),
   );
 
   if (!settings) {
-    settings = await BotSettings.create({});
+    // Ensure default values are populated if missing
+    settings = await BotSettings.create({ singletonId: "default" });
   }
 
-  // Send the dynamic welcome message
-  ctx.reply(settings.welcomeMessage, mainMenuKeyboard(ctx));
+  // FIX: Added a fallback string in case welcomeMessage is undefined
+  const welcomeText = settings.welcomeMessage || "Welcome to the bot!";
+  ctx.reply(welcomeText, mainMenuKeyboard(ctx));
 });
 
 bot.command("link", async (ctx) => {
-  // 1. Ensure this is inside a group chat
   if (ctx.chat.type === "private") {
     return ctx.reply(
       "⚠️ Please use this command inside your Stage's group chat.",
     );
   }
 
-  // 2. Grab the user we attached in the middleware
   const user = ctx.state.dbUser;
 
-  // 3. Check their role
   if (user.role !== "admin" && user.role !== "owner") {
-    return; // Silently ignore normal users so the bot doesn't spam the group
+    return; // Silently ignore normal users
   }
 
-  // 4. Ensure they actually have a stage assigned to them
   if (user.role === "admin" && !user.managedStageId) {
     return ctx.reply(
       "❌ You are an admin, but you haven't been assigned a Stage yet. Contact the Owner.",
     );
   }
 
-  // 5. Find the stage and link the group ID
   try {
-    const stageId =
-      user.role === "admin"
-        ? user.managedStageId
-        : ctx.message.text.split(" ")[1]; // Owner might pass stage ID as an argument later
+    let stageId = user.managedStageId;
+
+    // FIX: Safely handle the Owner providing a stage ID
+    if (user.role === "owner") {
+      stageId = ctx.message.text.split(" ")[1];
+      if (!stageId) {
+        return ctx.reply(
+          "⚠️ Owner: Please provide a Stage ID. Usage: `/link <stageId>`",
+        );
+      }
+    }
 
     const stage = await Stage.findById(stageId);
     if (!stage) return ctx.reply("❌ Stage not found in database.");
@@ -144,7 +152,9 @@ bot.command("link", async (ctx) => {
     );
   } catch (error) {
     console.error(error);
-    return ctx.reply("❌ An error occurred while linking the group.");
+    return ctx.reply(
+      "❌ An error occurred while linking the group. Make sure the Stage ID is valid.",
+    );
   }
 });
 
@@ -155,7 +165,8 @@ bot.hears("🔙 Main Menu", (ctx) =>
 );
 
 bot.hears("📚 Browse Classes", async (ctx) => {
-  const user = await User.findOne({ chatId: ctx.chat.id.toString() });
+  // FIX: Use the user from middleware instead of doing another DB query
+  const user = ctx.state.dbUser;
   if (!user || !user.stageId) ctx.scene.enter("CHOOSE_STAGE_SCENE");
   else ctx.scene.enter("BROWSE_CLASSES_SCENE");
 });
@@ -163,10 +174,7 @@ bot.hears("📚 Browse Classes", async (ctx) => {
 bot.hears("🔄 Switch Stage", (ctx) => ctx.scene.enter("CHOOSE_STAGE_SCENE"));
 
 bot.hears("⚙️ Admin Panel", (ctx) => {
-  // Check if the user exists in state, and grab their role
   const role = ctx.state.dbUser?.role;
-
-  // If they are a stage admin or the super owner, let them in
   if (role === "admin" || role === "owner") {
     ctx.reply("⚙️ Admin Panel", adminPanelKeyboard(ctx));
   }
@@ -188,10 +196,12 @@ bot.hears("❌ Delete Stage", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("DEL_STAGE_SCENE");
 });
 bot.hears("❌ Delete Class", (ctx) => {
-  if (ctx.state.dbUser?.role === "admin") ctx.scene.enter("DEL_CLASS_SCENE");
+  if (ctx.state.dbUser?.role === "admin" || ctx.state.dbUser?.role === "owner")
+    ctx.scene.enter("DEL_CLASS_SCENE");
 });
 bot.hears("❌ Delete Lecture", (ctx) => {
-  if (ctx.state.dbUser?.role === "admin") ctx.scene.enter("DEL_LECTURE_SCENE");
+  if (ctx.state.dbUser?.role === "admin" || ctx.state.dbUser?.role === "owner")
+    ctx.scene.enter("DEL_LECTURE_SCENE");
 });
 
 bot.hears("📢 Broadcast Message", (ctx) => {
@@ -226,6 +236,18 @@ bot.hears("👑 Promote Admin", (ctx) => {
 
 bot.hears("✏️ Edit Welcome Message", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("EDIT_WELCOME_SCENE");
+});
+
+bot.hears("📝 Edit Homework", (ctx) => {
+  const role = ctx.state.dbUser?.role;
+  if (role === "owner" || role === "admin")
+    ctx.scene.enter("EDIT_HOMEWORK_SCENE");
+});
+
+bot.hears("📅 Edit Schedule", (ctx) => {
+  const role = ctx.state.dbUser?.role;
+  if (role === "owner" || role === "admin")
+    ctx.scene.enter("EDIT_SCHEDULE_SCENE");
 });
 
 bot.launch();

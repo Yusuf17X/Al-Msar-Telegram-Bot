@@ -41,18 +41,21 @@ const adminPanelKeyboard = (ctx) => {
 
   if (role === "owner") {
     buttons.push(
+      ["📝 Edit Homework", "📅 Edit Schedule"],
       ["➕ Add Stage", "❌ Delete Stage"],
       ["➕ Add Class", "❌ Delete Class"],
       ["➕ Add Lecture", "❌ Delete Lecture"],
       ["➕ Add Archive", "❌ Delete Archive"],
       ["➕ Add Creative", "❌ Delete Creative"],
       ["📢 Broadcast Message", "📢 Send Announcement"],
+      ["👑 Promote Admin"],
     );
   } else if (role === "admin") {
     buttons.push(
+      ["📝 Edit Homework", "📅 Edit Schedule"],
       ["➕ Add Class", "❌ Delete Class"],
       ["➕ Add Lecture", "❌ Delete Lecture"],
-      ["📢 Broadcast Message"],
+      ["📢 Send Announcement"],
     );
   }
   buttons.push(["🔙 Main Menu"]);
