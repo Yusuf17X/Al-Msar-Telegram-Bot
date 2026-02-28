@@ -16,27 +16,45 @@ const timeIt = async (label, promise) => {
 const isCancel = (text) =>
   text === "❌ Cancel" || text === "🔙 Main Menu" || text?.startsWith("/");
 
-// ... existing timeIt and isCancel functions
-
+// Inside utils.js
 const mainMenuKeyboard = (ctx) => {
   const buttons = [
     ["📚 Browse Classes", "🔄 Switch Stage"],
-    ["📦 Archive", "🎨 Creative Stuff"], // <-- New user buttons
+    ["📦 Archive", "🎨 Creative Stuff"],
   ];
-  if (ctx.from?.id.toString() === process.env.ADMIN_ID) {
+
+  // Grab the role from ctx.state.dbUser
+  const role = ctx.state.dbUser?.role;
+
+  // If they are admin or owner, show the button
+  if (role === "admin" || role === "owner") {
     buttons.push(["⚙️ Admin Panel"]);
   }
+
   return Markup.keyboard(buttons).resize();
 };
 
-const adminPanelKeyboard = Markup.keyboard([
-  ["➕ Add Stage", "❌ Delete Stage"],
-  ["➕ Add Class", "❌ Delete Class"],
-  ["➕ Add Lecture", "❌ Delete Lecture"],
-  ["➕ Add Archive", "❌ Delete Archive"], // <-- New admin buttons
-  ["➕ Add Creative", "❌ Delete Creative"], // <-- New admin buttons
-  ["📢 Broadcast Message"],
-  ["🔙 Main Menu"],
-]).resize();
+const adminPanelKeyboard = (ctx) => {
+  const role = ctx.state.dbUser?.role;
+  const buttons = [];
+  if (role === "owner") {
+    buttons.push(
+      ["➕ Add Stage", "❌ Delete Stage"],
+      ["➕ Add Class", "❌ Delete Class"],
+      ["➕ Add Lecture", "❌ Delete Lecture"],
+      ["➕ Add Archive", "❌ Delete Archive"],
+      ["➕ Add Creative", "❌ Delete Creative"],
+      ["📢 Broadcast Message"],
+    );
+  } else if (role === "admin") {
+    buttons.push(
+      ["➕ Add Class", "❌ Delete Class"],
+      ["➕ Add Lecture", "❌ Delete Lecture"],
+      ["📢 Broadcast Message"],
+    );
+  }
+  buttons.push(["🔙 Main Menu"]);
+  return Markup.keyboard(buttons).resize();
+};
 
 module.exports = { timeIt, isCancel, mainMenuKeyboard, adminPanelKeyboard };

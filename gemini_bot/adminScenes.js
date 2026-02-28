@@ -73,37 +73,58 @@ const addClassWizard = new Scenes.WizardScene(
     return ctx.scene.leave();
   },
 );
+
 const addLectureWizard = new Scenes.WizardScene(
   "ADD_LECTURE_SCENE",
-  // Step 1: Select Stage
+  // Step 0: The Routing Step
   async (ctx) => {
-    const stages = await timeIt("DB: Fetch Stages", Stage.find());
-    if (stages.length === 0)
-      return ctx.scene.leave(ctx.reply("No stages exist.", adminPanelKeyboard));
+    const user = ctx.state.dbUser;
 
-    ctx.reply(
-      "Select the Stage:",
-      Markup.keyboard([...stages.map((s) => [s.name]), ["❌ Cancel"]]).resize(),
-    );
-    return ctx.wizard.next();
+    if (user.role === "admin") {
+      // ADMIN FLOW: Skip stage selection
+      const stage = await Stage.findById(user.managedStageId);
+      if (!stage)
+        return ctx.scene.leave(
+          ctx.reply("❌ Error: No stage assigned to you.", adminPanelKeyboard),
+        );
+
+      ctx.wizard.state.stageId = stage._id;
+      const classes = await Class.find({ stageId: stage._id });
+
+      ctx.reply(
+        `✅ Adding to **${stage.name}**.\n\nSelect the Class:`,
+        Markup.keyboard([
+          ...classes.map((c) => [c.name]),
+          ["❌ Cancel"],
+        ]).resize(),
+      );
+
+      // Jump directly to Step 2 (skipping Step 1)
+      ctx.wizard.selectStep(2);
+      return;
+    } else {
+      // OWNER FLOW: Ask for the Stage
+      const stages = await Stage.find();
+      ctx.reply(
+        "Select the Stage:",
+        Markup.keyboard([
+          ...stages.map((s) => [s.name]),
+          ["❌ Cancel"],
+        ]).resize(),
+      );
+      return ctx.wizard.next(); // Go to Step 1 normally
+    }
   },
-  // Step 2: Select Class
+  // Step 1: Owner Only - Process Stage Selection
   async (ctx) => {
     if (isCancel(ctx.message?.text))
       return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
 
     const stage = await Stage.findOne({ name: ctx.message.text });
-    if (!stage)
-      return ctx.reply("⚠️ Please select a valid stage from the keyboard.");
+    if (!stage) return ctx.reply("⚠️ Please select a valid stage.");
 
-    const classes = await timeIt(
-      "DB: Fetch Classes",
-      Class.find({ stageId: stage._id }),
-    );
-    if (classes.length === 0)
-      return ctx.scene.leave(
-        ctx.reply("No classes in this stage.", adminPanelKeyboard),
-      );
+    ctx.wizard.state.stageId = stage._id;
+    const classes = await Class.find({ stageId: stage._id });
 
     ctx.reply(
       "Select the Class:",
@@ -112,7 +133,29 @@ const addLectureWizard = new Scenes.WizardScene(
         ["❌ Cancel"],
       ]).resize(),
     );
-    return ctx.wizard.next();
+    return ctx.wizard.next(); // Go to Step 2
+  },
+  // Step 2: Both Admin and Owner end up here to select the Class
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    // Notice we check by stageId to ensure they don't type a class from another stage
+    const selectedClass = await Class.findOne({
+      name: ctx.message.text,
+      stageId: ctx.wizard.state.stageId,
+    });
+    if (!selectedClass)
+      return ctx.reply("⚠️ Please select a valid class from the keyboard.");
+
+    ctx.wizard.state.classId = selectedClass._id;
+    ctx.wizard.state.files = [];
+
+    ctx.reply(
+      "📎 Send your lecture files (PDF/PPTX). Click '✅ Done' when finished.",
+      Markup.keyboard([["✅ Done"], ["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next(); // Go to Step 3 (The file queue loop you already wrote)
   },
   // Step 3: Initialize File Queue
   async (ctx) => {
@@ -124,7 +167,7 @@ const addLectureWizard = new Scenes.WizardScene(
       return ctx.reply("⚠️ Please select a valid class from the keyboard.");
 
     ctx.wizard.state.classId = selectedClass._id;
-    ctx.wizard.state.files = []; // Initialize the queue
+    ctx.wizard.state.files = [];
 
     ctx.reply(
       "📎 Send your lecture files (PDF/PPTX). You can send multiple!\n\nClick '✅ Done' when you are finished.",
@@ -201,6 +244,25 @@ const addLectureWizard = new Scenes.WizardScene(
         }
       }
       ctx.reply("✅ All uploads finished.", adminPanelKeyboard);
+
+      try {
+        const stage = await Stage.findById(ctx.wizard.state.stageId);
+        const classObj = await Class.findById(ctx.wizard.state.classId);
+
+        // Check if this stage actually has a linked Telegram group
+        if (stage && stage.telegramGroupId) {
+          const message = `📢 **New Study Material Added!**\n\n📚 **Class:** ${classObj.name}\n📎 **Files Uploaded:** ${ctx.wizard.state.files.length}\n\n👉 Open the bot to download!`;
+
+          await ctx.telegram.sendMessage(stage.telegramGroupId, message);
+        }
+      } catch (error) {
+        console.log(
+          "Group notification failed (Bot might have been kicked):",
+          error,
+        );
+        // We catch the error silently so it doesn't crash the bot if the group is deleted
+      }
+
       return ctx.scene.leave();
     }
 
@@ -719,6 +781,145 @@ const delCreativeWizard = new Scenes.WizardScene(
   },
 );
 
+const promoteAdminWizard = new Scenes.WizardScene(
+  "PROMOTE_ADMIN_SCENE",
+  // Step 0: Ask for User ID
+  (ctx) => {
+    ctx.reply(
+      "👑 **Promote Stage Admin**\n\nPlease send the Telegram Chat ID of the user you want to promote.\n*(They can get their ID by messaging @userinfobot)*",
+      Markup.keyboard([["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  // Step 1: Verify User & Ask for Stage
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    const targetUserId = parseInt(ctx.message.text);
+    if (isNaN(targetUserId))
+      return ctx.reply("⚠️ Please send a valid numeric ID.");
+
+    const targetUser = await User.findOne({ chatId: targetUserId });
+    if (!targetUser)
+      return ctx.reply(
+        "❌ User not found in database. They must start the bot first.",
+      );
+
+    ctx.wizard.state.targetUserId = targetUser._id;
+
+    const stages = await Stage.find();
+    ctx.reply(
+      `✅ User found: ${targetUser.username || targetUserId}\n\nWhich Stage will they manage?`,
+      Markup.keyboard([...stages.map((s) => [s.name]), ["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  // Step 2: Save the Role
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    const stage = await Stage.findOne({ name: ctx.message.text });
+    if (!stage) return ctx.reply("⚠️ Please select a valid stage.");
+
+    // Update the user's role and assigned stage
+    await User.findByIdAndUpdate(ctx.wizard.state.targetUserId, {
+      role: "admin",
+      managedStageId: stage._id,
+    });
+
+    ctx.reply(
+      `🎉 Success! User has been promoted to Admin for **${stage.name}**.\n\nTell them to type /start to refresh their menu.`,
+      adminPanelKeyboard,
+    );
+    return ctx.scene.leave();
+  },
+);
+
+const broadcastGroupWizard = new Scenes.WizardScene(
+  "BROADCAST_GROUP_SCENE",
+  // Step 0: Routing (Admin vs Owner)
+  async (ctx) => {
+    const user = ctx.state.dbUser;
+
+    if (user.role === "admin") {
+      const stage = await Stage.findById(user.managedStageId);
+      if (!stage || !stage.telegramGroupId) {
+        return ctx.scene.leave(
+          ctx.reply(
+            "❌ Error: Your stage doesn't have a linked group yet. Add the bot to your group and type /link.",
+            adminPanelKeyboard,
+          ),
+        );
+      }
+
+      ctx.wizard.state.targetGroupId = stage.telegramGroupId;
+      ctx.reply(
+        `📢 **Broadcast to ${stage.name}**\n\nType the announcement message you want to send to the group:`,
+        Markup.keyboard([["❌ Cancel"]]).resize(),
+      );
+
+      ctx.wizard.selectStep(2); // Skip Step 1
+      return;
+    } else {
+      // Owner Flow: Ask which stage to broadcast to
+      const stages = await Stage.find({ telegramGroupId: { $ne: null } }); // Only fetch stages with linked groups
+      if (stages.length === 0)
+        return ctx.scene.leave(
+          ctx.reply("❌ No stages have linked groups yet.", adminPanelKeyboard),
+        );
+
+      ctx.reply(
+        "📢 Select the Stage group to broadcast to:",
+        Markup.keyboard([
+          ...stages.map((s) => [s.name]),
+          ["❌ Cancel"],
+        ]).resize(),
+      );
+      return ctx.wizard.next();
+    }
+  },
+  // Step 1: Owner Only - Save the target group ID
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    const stage = await Stage.findOne({ name: ctx.message.text });
+    if (!stage || !stage.telegramGroupId)
+      return ctx.reply("⚠️ Invalid selection or group not linked.");
+
+    ctx.wizard.state.targetGroupId = stage.telegramGroupId;
+    ctx.reply(
+      "Type the announcement message you want to send to the group:",
+      Markup.keyboard([["❌ Cancel"]]).resize(),
+    );
+    return ctx.wizard.next();
+  },
+  // Step 2: Both Admin & Owner end up here to send the message
+  async (ctx) => {
+    if (isCancel(ctx.message?.text))
+      return ctx.scene.leave(ctx.reply("Cancelled.", adminPanelKeyboard));
+
+    const announcementText = ctx.message.text;
+
+    try {
+      await ctx.telegram.sendMessage(
+        ctx.wizard.state.targetGroupId,
+        `📢 **Admin Announcement**\n\n${announcementText}`,
+      );
+      ctx.reply("✅ Announcement sent successfully!", adminPanelKeyboard);
+    } catch (error) {
+      ctx.reply(
+        "❌ Failed to send. Make sure the bot is still an admin in that group.",
+        adminPanelKeyboard,
+      );
+    }
+
+    return ctx.scene.leave();
+  },
+);
+
 module.exports = {
   addStageWizard,
   addClassWizard,
@@ -731,6 +932,8 @@ module.exports = {
   addCreativeWizard,
   delCreativeWizard,
   broadcastWizard,
+  broadcastGroupWizard,
   delArchiveWizard,
   delCreativeWizard,
+  promoteAdminWizard,
 };

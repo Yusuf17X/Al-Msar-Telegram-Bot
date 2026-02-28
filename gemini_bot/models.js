@@ -1,8 +1,12 @@
 const mongoose = require("mongoose");
 
+// Inside models.js
 const stageSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
+  adminId: { type: String, default: null },
+  telegramGroupId: { type: String, default: null },
 });
+
 const classSchema = new mongoose.Schema({
   name: { type: String, required: true },
   stageId: {
@@ -11,6 +15,7 @@ const classSchema = new mongoose.Schema({
     required: true,
   },
 });
+
 const lectureSchema = new mongoose.Schema({
   title: { type: String, required: true },
   classId: {
@@ -22,12 +27,20 @@ const lectureSchema = new mongoose.Schema({
   fileType: { type: String, required: true },
   channelMsgId: { type: Number, required: true },
 });
+
 const userSchema = new mongoose.Schema({
-  chatId: { type: String, required: true, unique: true },
-  stageId: {
+  chatId: { type: Number, required: true, unique: true },
+  username: { type: String },
+  // --- NEW RBAC FIELDS ---
+  role: {
+    type: String,
+    enum: ["user", "admin", "owner"],
+    default: "user",
+  },
+  managedStageId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Stage",
-    default: null,
+    default: null, // Only used if role === 'admin'
   },
 });
 
