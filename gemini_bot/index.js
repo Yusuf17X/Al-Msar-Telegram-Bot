@@ -160,91 +160,93 @@ bot.command("link", async (ctx) => {
 
 bot.command("suggest", (ctx) => ctx.scene.enter("SUGGEST_SCENE"));
 
-bot.hears("🔙 Main Menu", (ctx) =>
-  ctx.reply("Main Menu", mainMenuKeyboard(ctx)),
+bot.hears("🔝 القائمة الرئيسية", (ctx) =>
+  ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx)),
 );
 
-bot.hears("📚 Browse Classes", async (ctx) => {
+bot.hears("📚 المحاضرات", async (ctx) => {
   // FIX: Use the user from middleware instead of doing another DB query
   const user = ctx.state.dbUser;
   if (!user || !user.stageId) ctx.scene.enter("CHOOSE_STAGE_SCENE");
   else ctx.scene.enter("BROWSE_CLASSES_SCENE");
 });
 
-bot.hears("🔄 Switch Stage", (ctx) => ctx.scene.enter("CHOOSE_STAGE_SCENE"));
+bot.hears("🔄 تغيير المرحلة", (ctx) => ctx.scene.enter("CHOOSE_STAGE_SCENE"));
 
-bot.hears("⚙️ Admin Panel", (ctx) => {
+bot.hears("⚙️ Admin", (ctx) => {
   const role = ctx.state.dbUser?.role;
   if (role === "admin" || role === "owner") {
-    ctx.reply("⚙️ Admin Panel", adminPanelKeyboard(ctx));
+    ctx.reply("⚙️ Admin", adminPanelKeyboard(ctx));
   }
 });
 
-bot.hears("➕ Add Stage", (ctx) => {
+bot.hears("➕ اضافة مرحلة", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("ADD_STAGE_SCENE");
 });
-bot.hears("➕ Add Class", (ctx) => {
+bot.hears("➕ اضافة مادة", (ctx) => {
   const role = ctx.state.dbUser?.role;
   if (role === "owner" || role === "admin") ctx.scene.enter("ADD_CLASS_SCENE");
 });
-bot.hears("➕ Add Lecture", (ctx) => {
+bot.hears("➕ اضافة محاضرة", (ctx) => {
   const role = ctx.state.dbUser?.role;
   if (role === "owner" || role === "admin")
     ctx.scene.enter("ADD_LECTURE_SCENE");
 });
-bot.hears("❌ Delete Stage", (ctx) => {
+bot.hears("❌ حذف مرحلة", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("DEL_STAGE_SCENE");
 });
-bot.hears("❌ Delete Class", (ctx) => {
+bot.hears("❌ حذف مادة", (ctx) => {
   if (ctx.state.dbUser?.role === "admin" || ctx.state.dbUser?.role === "owner")
     ctx.scene.enter("DEL_CLASS_SCENE");
 });
-bot.hears("❌ Delete Lecture", (ctx) => {
+bot.hears("❌ حذف محاضرة", (ctx) => {
   if (ctx.state.dbUser?.role === "admin" || ctx.state.dbUser?.role === "owner")
     ctx.scene.enter("DEL_LECTURE_SCENE");
 });
 
-bot.hears("📢 Broadcast Message", (ctx) => {
+bot.hears("📢 رسالة جماعية", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("BROADCAST_SCENE");
 });
-bot.hears("📢 Send Announcement", (ctx) => {
+bot.hears("📢 ارسال اعلان للكروب", (ctx) => {
   if (ctx.state.dbUser?.role === "owner" || ctx.state.dbUser?.role === "admin")
     ctx.scene.enter("BROADCAST_GROUP_SCENE");
 });
 
-bot.hears("📦 Archive", (ctx) => ctx.scene.enter("VIEW_ARCHIVE_SCENE"));
-bot.hears("🎨 Creative Stuff", (ctx) => ctx.scene.enter("VIEW_CREATIVE_SCENE"));
+bot.hears("📦 الارشيف", (ctx) => ctx.scene.enter("VIEW_ARCHIVE_SCENE"));
+bot.hears("🎨 الادوات المساعدة", (ctx) =>
+  ctx.scene.enter("VIEW_CREATIVE_SCENE"),
+);
 
-bot.hears("➕ Add Archive", (ctx) => {
+bot.hears("➕ اضافة ارشيف", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("ADD_ARCHIVE_SCENE");
 });
-bot.hears("➕ Add Creative", (ctx) => {
+bot.hears("➕ اضافة الادوات المساعدة", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("ADD_CREATIVE_SCENE");
 });
 
-bot.hears("❌ Delete Archive", (ctx) => {
+bot.hears("❌ حذف الارشيف", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("DEL_ARCHIVE_SCENE");
 });
-bot.hears("❌ Delete Creative", (ctx) => {
+bot.hears("❌ حذف الادوات المساعدة", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("DEL_CREATIVE_SCENE");
 });
 
-bot.hears("👑 Promote Admin", (ctx) => {
+bot.hears("👑 اضافة ادمن", (ctx) => {
   if (ctx.state.dbUser?.role === "owner")
     ctx.scene.enter("PROMOTE_ADMIN_SCENE");
 });
 
-bot.hears("✏️ Edit Welcome Message", (ctx) => {
+bot.hears("✏️ تعديل الرسالة الترحيبية", (ctx) => {
   if (ctx.state.dbUser?.role === "owner") ctx.scene.enter("EDIT_WELCOME_SCENE");
 });
 
-bot.hears("📝 Edit Homework", (ctx) => {
+bot.hears("📝 تعديل الواجبات", (ctx) => {
   const role = ctx.state.dbUser?.role;
   if (role === "owner" || role === "admin")
     ctx.scene.enter("EDIT_HOMEWORK_SCENE");
 });
 
-bot.hears("📅 Edit Schedule", (ctx) => {
+bot.hears("📅 تعديل الجدول", (ctx) => {
   const role = ctx.state.dbUser?.role;
   if (role === "owner" || role === "admin")
     ctx.scene.enter("EDIT_SCHEDULE_SCENE");

@@ -14,13 +14,15 @@ const timeIt = async (label, promise) => {
 };
 
 const isCancel = (text) =>
-  text === "❌ Cancel" || text === "🔙 Main Menu" || text?.startsWith("/");
+  text === "❌ Cancel" ||
+  text === "🔝 القائمة الرئيسية" ||
+  text?.startsWith("/");
 
 // Inside utils.js
 const mainMenuKeyboard = (ctx) => {
   const buttons = [
-    ["📚 Browse Classes", "🔄 Switch Stage"],
-    ["📦 Archive", "🎨 Creative Stuff"],
+    ["📚 المحاضرات", "🔄 تغيير المرحلة"],
+    ["📦 الارشيف", "🎨 الادوات المساعدة"],
   ];
 
   // Grab the role from ctx.state.dbUser
@@ -28,7 +30,7 @@ const mainMenuKeyboard = (ctx) => {
 
   // If they are admin or owner, show the button
   if (role === "admin" || role === "owner") {
-    buttons.push(["⚙️ Admin Panel"]);
+    buttons.push(["⚙️ Admin"]);
   }
 
   return Markup.keyboard(buttons).resize();
@@ -41,24 +43,25 @@ const adminPanelKeyboard = (ctx) => {
 
   if (role === "owner") {
     buttons.push(
-      ["📝 Edit Homework", "📅 Edit Schedule"],
-      ["➕ Add Stage", "❌ Delete Stage"],
-      ["➕ Add Class", "❌ Delete Class"],
-      ["➕ Add Lecture", "❌ Delete Lecture"],
-      ["➕ Add Archive", "❌ Delete Archive"],
-      ["➕ Add Creative", "❌ Delete Creative"],
-      ["📢 Broadcast Message", "📢 Send Announcement"],
-      ["👑 Promote Admin"],
+      ["📝 تعديل الواجبات", "📝 تعديل الجدول"],
+      ["➕ اضافة مرحلة", "❌ حذف مرحلة"],
+      ["➕ اضافة مادة", "❌ حذف مادة"],
+      ["➕ اضافة محاضرة", "❌ حذف محاضرة"],
+      ["➕ اضافة ارشيف", "❌ حذف الارشيف"],
+      ["➕ اضافة الادوات المساعدة", "❌ حذف الادوات المساعدة"],
+      ["📢 رسالة جماعية", "📢 ارسال اعلان للكروب"],
+      ["✏️ تعديل الرسالة الترحيبية"],
+      ["👑 اضافة ادمن"],
     );
   } else if (role === "admin") {
     buttons.push(
-      ["📝 Edit Homework", "📅 Edit Schedule"],
-      ["➕ Add Class", "❌ Delete Class"],
-      ["➕ Add Lecture", "❌ Delete Lecture"],
-      ["📢 Send Announcement"],
+      ["📝 تعديل الواجبات", "📝 تعديل الجدول"],
+      ["➕ اضافة مادة", "❌ حذف مادة"],
+      ["➕ اضافة محاضرة", "❌ حذف محاضرة"],
+      ["📢 ارسال اعلان للكروب"],
     );
   }
-  buttons.push(["🔙 Main Menu"]);
+  buttons.push(["🔝 القائمة الرئيسية"]);
   return Markup.keyboard(buttons).resize();
 };
 

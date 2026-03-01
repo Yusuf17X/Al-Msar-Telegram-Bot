@@ -16,22 +16,21 @@ const chooseStageWizard = new Scenes.WizardScene(
   async (ctx) => {
     const stages = await timeIt("DB: Fetch Stages (User)", Stage.find());
     ctx.reply(
-      "🎓 Select your Stage/Year:",
+      "🎓 اختر مرحلتك:",
       Markup.keyboard([
         ...stages.map((s) => [s.name]),
-        ["🔙 Main Menu"],
+        ["🔝 القائمة الرئيسية"],
       ]).resize(),
     );
     return ctx.wizard.next();
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text)) {
-      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      await ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
     const stage = await Stage.findOne({ name: ctx.message.text });
-    if (!stage)
-      return ctx.reply("⚠️ Please select a valid stage from the keyboard.");
+    if (!stage) return ctx.reply("⚠️ المرحلة غير موجودة.");
 
     await timeIt(
       "DB: Update User Stage",
@@ -40,7 +39,7 @@ const chooseStageWizard = new Scenes.WizardScene(
         { stageId: stage._id },
       ),
     );
-    ctx.reply(`✅ Stage set to ${stage.name}.`);
+    ctx.reply(`✅ تم اختيار مرحلة ${stage.name}.`);
     return ctx.scene.enter("BROWSE_CLASSES_SCENE");
   },
 );
@@ -52,10 +51,7 @@ const browseClassesWizard = new Scenes.WizardScene(
   async (ctx) => {
     const user = await User.findOne({ chatId: ctx.chat.id.toString() });
     if (!user || !user.stageId) {
-      await ctx.reply(
-        "⚠️ You haven't selected a stage yet.",
-        mainMenuKeyboard(ctx),
-      );
+      await ctx.reply("⚠️ اختر مرحلتك اولاً.", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
@@ -64,7 +60,7 @@ const browseClassesWizard = new Scenes.WizardScene(
 
     if (!stage) {
       await ctx.reply(
-        "⚠️ Your selected stage was not found. Please choose again.",
+        "⚠️ الصف الذي اخترته غير موجود, اختر صف اخر..",
         mainMenuKeyboard(ctx),
       );
       return ctx.scene.leave();
@@ -81,19 +77,16 @@ const browseClassesWizard = new Scenes.WizardScene(
 
     // --- Inject Homework/Schedule if they exist ---
     const updatesRow = [];
-    if (stage.homeworkText) updatesRow.push("📝 Homework");
-    if (stage.scheduleImageId) updatesRow.push("📅 Schedule");
+    if (stage.homeworkText) updatesRow.push("📝 الواجبات");
+    if (stage.scheduleImageId) updatesRow.push("📅 الجدول");
 
     if (updatesRow.length > 0) {
       buttons.unshift(updatesRow); // Put them at the very top
     }
 
-    buttons.push(["🔙 Main Menu"]);
+    buttons.push(["🔝 القائمة الرئيسية"]);
 
-    ctx.reply(
-      "📚 Choose a class or view updates:",
-      Markup.keyboard(buttons).resize(),
-    );
+    ctx.reply("📚 اختر مادة:", Markup.keyboard(buttons).resize());
     return ctx.wizard.next();
   },
 
@@ -101,21 +94,19 @@ const browseClassesWizard = new Scenes.WizardScene(
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text)) {
-      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      await ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
     const stage = ctx.wizard.state.stage;
 
     // --- Intercept Homework/Schedule Clicks (Stay in Step 2) ---
-    if (text === "📝 Homework" && stage.homeworkText) {
-      await ctx.reply(`📝 **Homework Updates:**\n\n${stage.homeworkText}`);
+    if (text === "📝 الواجبات" && stage.homeworkText) {
+      await ctx.reply(`📝 الواجبات:\n\n${stage.homeworkText}`);
       return;
     }
-    if (text === "📅 Schedule" && stage.scheduleImageId) {
-      await ctx.telegram.sendPhoto(ctx.chat.id, stage.scheduleImageId, {
-        caption: "📅 Current Schedule",
-      });
+    if (text === "📅 الجدول" && stage.scheduleImageId) {
+      await ctx.telegram.sendPhoto(ctx.chat.id, stage.scheduleImageId);
       return;
     }
 
@@ -124,8 +115,7 @@ const browseClassesWizard = new Scenes.WizardScene(
       name: text,
       stageId: stage._id,
     });
-    if (!selectedClass)
-      return ctx.reply("⚠️ Please select a valid option from the keyboard.");
+    if (!selectedClass) return ctx.reply("⚠️ اختر كلمة صحيحة من الازرار.");
 
     ctx.wizard.state.classId = selectedClass._id;
 
@@ -149,10 +139,10 @@ const browseClassesWizard = new Scenes.WizardScene(
       lectureButtons.unshift(["🔬 Lab Lectures"]);
     }
 
-    lectureButtons.push(["🔙 Back to Classes", "🔙 Main Menu"]);
+    lectureButtons.push(["🔙 العودة الى المواد", "🔝 القائمة الرئيسية"]);
 
     ctx.reply(
-      `📖 **${selectedClass.name}**\n\nSelect a lecture:`,
+      `📖 ${selectedClass.name}\n\nاختر محاضرة:`,
       Markup.keyboard(lectureButtons).resize(),
     );
     return ctx.wizard.next();
@@ -162,26 +152,23 @@ const browseClassesWizard = new Scenes.WizardScene(
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text)) {
-      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      await ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
-    if (text === "🔙 Back to Classes")
+    if (text === "🔙 العودة الى المواد")
       return ctx.scene.enter("BROWSE_CLASSES_SCENE");
 
     // --- Intercept "Back to Lectures" (Navigating out of the Lab folder) ---
-    if (text === "🔙 Back to Lectures") {
+    if (text === "🔙 العودة الى المحاضرات") {
       const theoryButtons = ctx.wizard.state.theoryLectures.map((l) => [
         l.title,
       ]);
       if (ctx.wizard.state.labLectures.length > 0)
         theoryButtons.unshift(["🔬 Lab Lectures"]);
-      theoryButtons.push(["🔙 Back to Classes", "🔙 Main Menu"]);
+      theoryButtons.push(["🔙 العودة الى المواد", "🔝 القائمة الرئيسية"]);
 
-      await ctx.reply(
-        "📖 Main Lectures:",
-        Markup.keyboard(theoryButtons).resize(),
-      );
+      await ctx.reply("📖 المحاضرات:", Markup.keyboard(theoryButtons).resize());
       return; // Stay in Step 3
     }
 
@@ -191,10 +178,10 @@ const browseClassesWizard = new Scenes.WizardScene(
       ctx.wizard.state.labLectures?.length > 0
     ) {
       const labButtons = ctx.wizard.state.labLectures.map((l) => [l.title]);
-      labButtons.push(["🔙 Back to Lectures", "🔙 Main Menu"]);
+      labButtons.push(["🔙 العودة الى المحاضرات", "🔝 القائمة الرئيسية"]);
 
       await ctx.reply(
-        "🔬 **Lab Lectures:**\n\nSelect a lab:",
+        "🔬 Lab Lectures:\n\nاختر محاضرة:",
         Markup.keyboard(labButtons).resize(),
       );
       return; // Stay in Step 3
@@ -206,9 +193,9 @@ const browseClassesWizard = new Scenes.WizardScene(
       title: text,
     });
 
-    if (!lecture) return ctx.reply("⚠️ Please select a valid lecture.");
+    if (!lecture) return ctx.reply("⚠️ اختر محاضرة من الازرار.");
 
-    const statusMsg = await ctx.reply(`⏳ Sending ${lecture.title}...`);
+    const statusMsg = await ctx.reply(`⏳ إرسال ${lecture.title}...`);
 
     try {
       await timeIt(
@@ -219,7 +206,7 @@ const browseClassesWizard = new Scenes.WizardScene(
       );
     } catch (err) {
       console.error(err);
-      await ctx.reply("❌ Failed to send file.");
+      await ctx.reply("❌ خطأ, تعذر ارسال الملف.");
     }
 
     try {
@@ -236,35 +223,35 @@ const viewArchiveWizard = new Scenes.WizardScene(
   async (ctx) => {
     const archives = await timeIt("DB: Fetch Archives", Archive.find());
     if (archives.length === 0) {
-      await ctx.reply("No archives available.", mainMenuKeyboard(ctx));
+      await ctx.reply("هذا القسم فارغ حاليا....", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
     ctx.reply(
-      "📦 Select an Archive:",
+      "📦 اختر أرشيف:",
       Markup.keyboard([
         ...archives.map((a) => [a.name]),
-        ["🔙 Main Menu"],
+        ["🔝 القائمة الرئيسية"],
       ]).resize(),
     );
     return ctx.wizard.next();
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text)) {
-      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      await ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
     const archive = await Archive.findOne({ name: ctx.message.text });
-    if (!archive) return ctx.reply("⚠️ Please select a valid archive."); // FIX: Added reply
+    if (!archive) return ctx.reply("⚠️ اختر أرشيف صحيح من الازرار."); // FIX: Added reply
 
     const files = await ArchiveFile.find({ archiveId: archive._id });
     if (files.length === 0) {
-      await ctx.reply("⚠️ This archive is empty.", mainMenuKeyboard(ctx));
-      return ctx.scene.leave(); // FIX: Exit scene if empty
+      await ctx.reply("⚠️ هذا الأرشيف فارغ.", mainMenuKeyboard(ctx));
+      return ctx.scene.leave();
     }
 
-    ctx.reply(`⏳ Sending ${files.length} files from ${archive.name}...`);
+    ctx.reply(`⏳ إرسال ${files.length} ملفات من ${archive.name}...`);
     for (const file of files) {
       try {
         await ctx.telegram.sendDocument(ctx.chat.id, file.fileId);
@@ -273,7 +260,7 @@ const viewArchiveWizard = new Scenes.WizardScene(
       }
     }
 
-    await ctx.reply("✅ All files sent.", mainMenuKeyboard(ctx));
+    await ctx.reply("✅ تم إرسال جميع الملفات.", mainMenuKeyboard(ctx));
     return ctx.scene.leave(); // FIX: Exit scene so user doesn't get trapped
   },
 );
@@ -284,35 +271,35 @@ const viewCreativeWizard = new Scenes.WizardScene(
   async (ctx) => {
     const creatives = await timeIt("DB: Fetch Creatives", Creative.find());
     if (creatives.length === 0) {
-      await ctx.reply("No creative topics available.", mainMenuKeyboard(ctx));
+      await ctx.reply("هذا القسم فارغ حاليا....", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
     ctx.reply(
-      "🎨 Select a Creative topic:",
+      "🎨 اختر زر:",
       Markup.keyboard([
         ...creatives.map((c) => [c.name]),
-        ["🔙 Main Menu"],
+        ["🔝 القائمة الرئيسية"],
       ]).resize(),
     );
     return ctx.wizard.next();
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text)) {
-      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      await ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
     const creative = await Creative.findOne({ name: ctx.message.text });
-    if (!creative) return ctx.reply("⚠️ Please select a valid creative topic."); // FIX: Added reply
+    if (!creative) return ctx.reply("⚠️ اختر زر من الازرار الموجودة."); // FIX: Added reply
 
     // Send the text message first (we keep this one permanently)
-    await ctx.reply(`🎨 **${creative.name}**\n\n${creative.text}`);
+    await ctx.reply(`🎨 ${creative.name}\n\n${creative.text}`);
 
     const files = await CreativeFile.find({ creativeId: creative._id });
     if (files.length > 0) {
       // 1. Capture the loading message
-      const statusMsg = await ctx.reply(`⏳ Sending attached files...`);
+      const statusMsg = await ctx.reply(`⏳ إرسال الملفات المرفقة...`);
 
       for (const file of files) {
         try {
@@ -330,7 +317,7 @@ const viewCreativeWizard = new Scenes.WizardScene(
       } catch (e) {}
     }
 
-    await ctx.reply("✅ Finished.", mainMenuKeyboard(ctx));
+    await ctx.reply("✅ تم الانتهاء.", mainMenuKeyboard(ctx));
     return ctx.scene.leave(); // FIX: Exit scene so user doesn't get trapped
   },
 );
@@ -339,14 +326,14 @@ const suggestWizard = new Scenes.WizardScene(
   "SUGGEST_SCENE",
   async (ctx) => {
     ctx.reply(
-      "💡 Have a suggestion to improve the bot or want to contribute? Please share your ideas here!",
-      Markup.keyboard([["🔙 Main Menu"]]).resize(),
+      "💡 هل لديك اقتراح لتحسين البوت أو تريد تساعدنا بالبوت؟ دز فكرتك هنا!",
+      Markup.keyboard([["🔝 القائمة الرئيسية"]]).resize(),
     );
     return ctx.wizard.next();
   },
   async (ctx) => {
     if (isCancel(ctx.message?.text)) {
-      await ctx.reply("Main Menu", mainMenuKeyboard(ctx));
+      await ctx.reply("🔝 القائمة الرئيسية", mainMenuKeyboard(ctx));
       return ctx.scene.leave();
     }
 
@@ -359,7 +346,7 @@ const suggestWizard = new Scenes.WizardScene(
       `💡 New suggestion from ${ctx.from.first_name || ctx.from.username || ctx.from.id} (@${ctx.from.username}):\n\n${suggestion}`,
     );
 
-    ctx.reply("✅ Thanks for your suggestion!", mainMenuKeyboard(ctx));
+    ctx.reply("✅ شكرا على اقتراحك!", mainMenuKeyboard(ctx));
     return ctx.scene.leave();
   },
 );
