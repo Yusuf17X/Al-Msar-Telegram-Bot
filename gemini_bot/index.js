@@ -59,6 +59,16 @@ bot.use(async (ctx, next) => {
       username: ctx.from.username,
       role: userRole,
     });
+
+    const owners = await User.find({ role: "owner" });
+    owners.forEach((owner) => {
+      if (owner.chatId !== user.chatId) {
+        bot.telegram.sendMessage(
+          owner.chatId,
+          `👤 New user registered: ${user.name} (@${user.username})`,
+        );
+      }
+    });
   }
 
   // Attach the user object directly to 'ctx' so we can use it anywhere!
@@ -105,7 +115,11 @@ bot.start(async (ctx) => {
   }
 
   // FIX: Added a fallback string in case welcomeMessage is undefined
-  const welcomeText = settings.welcomeMessage || "Welcome to the bot!";
+  const welcomeText =
+    settings.welcomeMessage.replace(
+      "#الاسم",
+      ctx.state.dbUser?.name || ctx.state.dbUser?.username,
+    ) || "Welcome to the bot!";
   ctx.reply(welcomeText, mainMenuKeyboard(ctx));
 });
 
