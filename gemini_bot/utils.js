@@ -21,7 +21,7 @@ const isCancel = (text) =>
 // Inside utils.js
 const mainMenuKeyboard = (ctx) => {
   const buttons = [
-    ["📚 المحاضرات", "🔄 تغيير المرحلة"],
+    ["🔄 تغيير المرحلة", "📚 المحاضرات"],
     ["📦 الارشيف", "🎨 الادوات المساعدة"],
   ];
 
@@ -65,4 +65,73 @@ const adminPanelKeyboard = (ctx) => {
   return Markup.keyboard(buttons).resize();
 };
 
-module.exports = { timeIt, isCancel, mainMenuKeyboard, adminPanelKeyboard };
+// This object will hold pending notifications: { stageId: { timeout: timer, updates: [] } }
+const notificationQueue = {};
+
+const queueGroupNotification = (ctx, stage, update) => {
+  const stageId = stage._id.toString();
+
+  if (!notificationQueue[stageId]) {
+    notificationQueue[stageId] = { updates: [], timeout: null };
+  }
+
+  // update now contains { className, fileNames, category }
+  notificationQueue[stageId].updates.push(update);
+
+  if (!notificationQueue[stageId].timeout) {
+    notificationQueue[stageId].timeout = setTimeout(async () => {
+      await sendBatchNotification(ctx, stageId, stage.telegramGroupId);
+    }, 30000);
+  }
+};
+
+const sendBatchNotification = async (ctx, stageId, groupId) => {
+  const queue = notificationQueue[stageId];
+  if (!queue || queue.updates.length === 0) return;
+
+  // Aggregate file names by Class and Category
+  const summary = queue.updates.reduce((acc, curr) => {
+    if (!acc[curr.className]) acc[curr.className] = { theory: [], lab: [] };
+
+    // Push all filenames from this batch into the correct category array
+    acc[curr.className][curr.category].push(...curr.fileNames);
+    return acc;
+  }, {});
+
+  let message = "";
+
+  // Use .forEach() to build the list
+  Object.entries(summary).forEach(([className, categories]) => {
+    message += `📚 ${className}: `;
+
+    if (categories.theory.length > 0) {
+      message += `Theory: ${categories.theory.join(", ")}\n`;
+    }
+
+    if (categories.lab.length > 0) {
+      message += `Lab: ${categories.lab.join(", ")}\n`;
+    }
+
+    message += `\n`;
+  });
+
+  message += "صارت بالبوت";
+
+  try {
+    if (groupId) {
+      await ctx.telegram.sendMessage(groupId, message);
+    }
+  } catch (err) {
+    console.error("Batch notification failed:", err.message);
+  } finally {
+    delete notificationQueue[stageId];
+  }
+};
+
+module.exports = {
+  timeIt,
+  isCancel,
+  mainMenuKeyboard,
+  adminPanelKeyboard,
+  queueGroupNotification,
+};

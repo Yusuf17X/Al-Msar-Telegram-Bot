@@ -61,11 +61,13 @@ bot.use(async (ctx, next) => {
     });
 
     const owners = await User.find({ role: "owner" });
+    const usersCount = await User.countDocuments();
+
     owners.forEach((owner) => {
       if (owner.chatId !== user.chatId) {
         bot.telegram.sendMessage(
           owner.chatId,
-          `👤 New user registered: ${user.name} (@${user.username})`,
+          `👤 مستخدم جديد: ${user.name} (@${user.username})\n👥 عدد المستخدمين الكلي: ${usersCount}`,
         );
       }
     });

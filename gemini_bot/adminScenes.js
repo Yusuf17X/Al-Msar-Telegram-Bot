@@ -15,6 +15,7 @@ const {
   isCancel,
   mainMenuKeyboard,
   adminPanelKeyboard,
+  queueGroupNotification,
 } = require("./utils");
 
 const addStageWizard = new Scenes.WizardScene(
@@ -187,7 +188,7 @@ const addLectureWizard = new Scenes.WizardScene(
     return ctx.wizard.next();
   },
 
-  // Step 4: Handle File Queue and Saving (Formerly Step 3)
+  // Step 4: Handle File Queue and Saving
   async (ctx) => {
     const text = ctx.message?.text;
     if (isCancel(text))
@@ -242,7 +243,7 @@ const addLectureWizard = new Scenes.WizardScene(
                 ? "pdf"
                 : "pptx",
               channelMsgId: channelMsg.message_id,
-              category: ctx.wizard.state.category, // <--- NEW: Saves 'theory' or 'lab' to DB
+              category: ctx.wizard.state.category,
             }),
           );
           ctx.reply(`✅ Saved: ${title}`);
@@ -253,19 +254,26 @@ const addLectureWizard = new Scenes.WizardScene(
       }
       ctx.reply("✅ All uploads finished.", adminPanelKeyboard(ctx));
 
-      try {
-        const stage = await Stage.findById(ctx.wizard.state.stageId);
-        const classObj = await Class.findById(ctx.wizard.state.classId);
+      // Inside Step 4 of addLectureWizard, after the upload loop finishes:
 
-        if (stage && stage.telegramGroupId) {
-          // Changed message slightly to show if it's Lab or Theory
-          const catText = ctx.wizard.state.category === "lab" ? "Lab " : "";
-          const message = `📢 **New Study Material Added!**\n\n📚 **Class:** ${classObj.name}\n🔬 **Type:** ${catText}Lecture\n📎 **Files Uploaded:** ${ctx.wizard.state.files.length}\n\n👉 Open the bot to download!`;
+      const stageObj = await Stage.findById(ctx.wizard.state.stageId);
+      const classObj = await Class.findById(ctx.wizard.state.classId);
 
-          await ctx.telegram.sendMessage(stage.telegramGroupId, message);
-        }
-      } catch (error) {
-        console.log("Group notification failed:", error.message);
+      if (stageObj && stageObj.telegramGroupId) {
+        // Extract the clean file names (without extensions) from the batch
+        const fileNames = sortedFiles.map((msg) => {
+          const fileName = msg.document.file_name || "Unknown";
+          return fileName.lastIndexOf(".") !== -1
+            ? fileName.substring(0, fileName.lastIndexOf("."))
+            : fileName;
+        });
+
+        // Send names to the notification queue
+        queueGroupNotification(ctx, stageObj, {
+          className: classObj.name,
+          fileNames: fileNames, // Passing the array of names
+          category: ctx.wizard.state.category,
+        });
       }
 
       return ctx.scene.leave();
